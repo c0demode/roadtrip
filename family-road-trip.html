@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Our Family Road Trip</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root{
+    --navy:#16232E;
+    --navy-2:#1E3140;
+    --cream:#FBF4E4;
+    --paper-muted:#D8CCA9;
+    --mustard:#E3A72B;
+    --mustard-dark:#B9840F;
+    --brick:#C1442D;
+    --sage:#3F6B4F;
+    --sage-dark:#2C4D37;
+    --ink:#16232E;
+    --ink-soft:#4A5568;
+    --radius:14px;
+    --shadow: 0 6px 18px rgba(22,35,46,0.18);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--navy);
+    color:var(--cream);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    min-height:100vh;
+  }
+  .display{
+    font-family:Georgia,"Iowan Old Style","Palatino Linotype",serif;
+  }
+  ::selection{background:var(--mustard);color:var(--navy);}
+
+  /* ---------- Passcode gate ---------- */
+  #gate{
+    position:fixed;inset:0;background:var(--navy);
+    display:flex;align-items:center;justify-content:center;
+    z-index:500;padding:24px;
+  }
+  .gate-card{
+    background:var(--cream);color:var(--ink);
+    border-radius:var(--radius);padding:36px 32px;
+    max-width:380px;width:100%;box-shadow:var(--shadow);
+    text-align:center;
+  }
+  .gate-card .route-mark{
+    width:56px;height:56px;border-radius:50%;background:var(--sage);
+    color:var(--cream);display:flex;align-items:center;justify-content:center;
+    font-size:26px;margin:0 auto 14px;
+  }
+  .gate-card h1{font-size:22px;margin:0 0 4px;}
+  .gate-card p{font-size:14px;color:var(--ink-soft);margin:0 0 18px;}
+  .gate-card input{
+    width:100%;padding:12px 14px;border-radius:10px;border:2px solid var(--paper-muted);
+    font-size:16px;margin-bottom:10px;background:#fff;color:var(--ink);
+  }
+  .gate-card input:focus{outline:none;border-color:var(--sage);}
+  .btn{
+    border:none;border-radius:10px;padding:12px 18px;font-size:15px;font-weight:600;
+    cursor:pointer;transition:transform .1s ease, box-shadow .1s ease;
+  }
+  .btn:active{transform:scale(0.97);}
+  .btn-primary{background:var(--sage);color:var(--cream);width:100%;}
+  .btn-primary:hover{background:var(--sage-dark);}
+  .gate-error{color:var(--brick);font-size:13px;min-height:18px;margin-top:2px;}
+  .gate-hint{font-size:12px;color:var(--ink-soft);margin-top:14px;opacity:0.75;}
+
+  /* ---------- Header ---------- */
+  header{
+    padding:18px 20px 14px;
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    border-bottom:1px dashed rgba(251,244,228,0.25);
+    flex-wrap:wrap;
+  }
+  .brand{display:flex;align-items:center;gap:12px;}
+  .brand-badge{
+    width:42px;height:42px;border-radius:50%;background:var(--mustard);
+    display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;
+  }
+  .brand h1{font-size:20px;margin:0;letter-spacing:0.2px;}
+  .brand .eyebrow{
+    font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--mustard);
+    margin:0 0 2px;font-weight:600;
+  }
+  .header-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .mode-pill{
+    font-size:12px;padding:7px 12px;border-radius:20px;font-weight:600;
+    display:flex;align-items:center;gap:6px;border:1px solid rgba(251,244,228,0.3);
+    color:var(--cream);background:transparent;cursor:pointer;
+  }
+  .mode-pill.active{background:var(--mustard);color:var(--navy);border-color:var(--mustard);}
+
+  /* ---------- Day tabs ---------- */
+  .day-tabs{
+    display:flex;gap:8px;padding:14px 20px 0;overflow-x:auto;
+  }
+  .day-tab{
+    background:transparent;border:1px solid rgba(251,244,228,0.3);color:var(--cream);
+    padding:9px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;
+    white-space:nowrap;flex-shrink:0;
+  }
+  .day-tab.active{background:var(--cream);color:var(--navy);border-color:var(--cream);}
+
+  /* ---------- Layout ---------- */
+  .layout{
+    display:grid;grid-template-columns:1fr;gap:0;
+    padding:16px 20px 60px;
+  }
+  @media(min-width:920px){
+    .layout{grid-template-columns:1fr 1fr;gap:20px;align-items:start;}
+    .map-col{position:sticky;top:16px;}
+  }
+
+  .map-col{margin-bottom:16px;}
+  #map{
+    height:360px;border-radius:var(--radius);box-shadow:var(--shadow);
+    border:3px solid var(--cream);
+  }
+  @media(min-width:920px){ #map{height:520px;} }
+
+  .progress-wrap{
+    background:var(--navy-2);border-radius:var(--radius);padding:14px 16px;margin-top:12px;
+  }
+  .progress-top{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:8px;}
+  .progress-track{height:10px;border-radius:6px;background:rgba(251,244,228,0.15);overflow:hidden;}
+  .progress-fill{height:100%;background:var(--mustard);border-radius:6px;transition:width .4s ease;}
+  .gps-btn{
+    margin-top:10px;width:100%;background:var(--brick);color:var(--cream);
+  }
+  .gps-btn.sharing{background:var(--sage);}
+  .gps-status{font-size:11px;color:var(--paper-muted);margin-top:6px;text-align:center;}
+
+  /* ---------- Cards ---------- */
+  .day-summary{
+    background:var(--navy-2);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px;
+    font-size:13px;display:flex;gap:18px;flex-wrap:wrap;
+  }
+  .day-summary b{color:var(--mustard);display:block;font-size:16px;}
+  #cards{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px;}
+  .stop-card{
+    background:var(--cream);color:var(--ink);border-radius:var(--radius);
+    padding:14px 14px 14px 0;box-shadow:var(--shadow);display:flex;gap:0;position:relative;
+    overflow:hidden;
+  }
+  .stop-card.napcard{background:var(--sage);color:var(--cream);}
+  .stop-card.napcard .stop-address, .stop-card.napcard .stop-notes{color:rgba(251,244,228,0.85);}
+  .sign{
+    width:52px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    background:var(--mustard);color:var(--navy);font-weight:800;font-size:18px;
+    font-family:Georgia,serif;
+  }
+  .stop-card.napcard .sign{background:var(--navy);color:var(--cream);}
+  .stop-body{padding:0 14px;flex:1;min-width:0;}
+  .stop-top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start;}
+  .stop-time{font-size:12px;font-weight:700;color:var(--sage-dark);letter-spacing:0.3px;}
+  .napcard .stop-time{color:var(--mustard);}
+  .stop-name{font-size:16px;font-weight:700;margin:2px 0 4px;font-family:Georgia,serif;}
+  .stop-icon{font-size:20px;}
+  .stop-address{font-size:12px;color:var(--ink-soft);margin-bottom:6px;}
+  .stop-notes{font-size:13px;line-height:1.4;margin-bottom:10px;}
+  .stop-links{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
+  .chip{
+    font-size:12px;padding:6px 10px;border-radius:16px;text-decoration:none;
+    background:rgba(22,35,46,0.08);color:var(--ink);font-weight:600;
+  }
+  .napcard .chip{background:rgba(251,244,228,0.15);color:var(--cream);}
+  .chip:hover{background:rgba(22,35,46,0.16);}
+  .stop-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .here-btn{background:var(--sage);color:#fff;font-size:12px;padding:6px 10px;}
+  .here-btn.is-current{background:var(--brick);}
+  .drag-handle{
+    cursor:grab;color:var(--ink-soft);font-size:12px;padding:6px 8px;
+    display:flex;align-items:center;gap:4px;user-select:none;
+  }
+  .planner-only{display:none;}
+  body.planner-mode .planner-only{display:flex;}
+  .icon-btn{background:transparent;border:1px solid var(--paper-muted);color:var(--ink-soft);font-size:12px;padding:6px 9px;border-radius:8px;}
+  .icon-btn.danger{color:var(--brick);border-color:var(--brick);}
+  .sortable-ghost{opacity:0.4;}
+  .drive-note{
+    font-size:12px;color:var(--paper-muted);text-align:center;padding:4px 0 2px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .drive-note:before,.drive-note:after{content:"";flex:1;height:1px;background:rgba(251,244,228,0.2);}
+
+  .add-stop-btn{
+    width:100%;margin-top:6px;background:transparent;border:2px dashed var(--paper-muted);
+    color:var(--cream);border-radius:var(--radius);padding:14px;font-weight:600;
+  }
+
+  /* ---------- Modal ---------- */
+  #modal-backdrop{
+    position:fixed;inset:0;background:rgba(22,35,46,0.6);display:none;
+    align-items:center;justify-content:center;z-index:400;padding:16px;
+  }
+  #modal-backdrop.open{display:flex;}
+  .modal{
+    background:var(--cream);color:var(--ink);border-radius:var(--radius);
+    max-width:440px;width:100%;padding:22px;max-height:90vh;overflow-y:auto;
+  }
+  .modal h2{margin:0 0 14px;font-size:18px;font-family:Georgia,serif;}
+  .field{margin-bottom:12px;}
+  .field label{display:block;font-size:12px;font-weight:700;color:var(--ink-soft);margin-bottom:4px;}
+  .field input, .field textarea, .field select{
+    width:100%;padding:9px 10px;border-radius:8px;border:1px solid var(--paper-muted);
+    font-size:14px;font-family:inherit;background:#fff;color:var(--ink);
+  }
+  .field textarea{resize:vertical;min-height:60px;}
+  .field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .modal-actions{display:flex;gap:10px;margin-top:16px;}
+  .modal-actions .btn{flex:1;}
+  .btn-ghost{background:transparent;border:1px solid var(--paper-muted);color:var(--ink);}
+  .field-hint{font-size:11px;color:var(--ink-soft);margin-top:3px;}
+
+  .car-icon{font-size:26px;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.5));}
+  .leaflet-marker-icon.stop-pin{
+    display:flex;align-items:center;justify-content:center;
+    background:var(--brick);color:#fff;border-radius:50%;
+    width:26px !important;height:26px !important;font-weight:700;font-size:12px;
+    border:2px solid var(--cream);box-shadow:0 2px 4px rgba(0,0,0,0.3);
+  }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="gate-card">
+    <div class="route-mark">🚗</div>
+    <h1 class="display">Family Road Trip</h1>
+    <p>Enter the trip passcode to view the itinerary.</p>
+    <input type="password" id="passcode-input" placeholder="Passcode" autocomplete="off">
+    <button class="btn btn-primary" id="passcode-submit">Enter</button>
+    <div class="gate-error" id="gate-error"></div>
+    <div class="gate-hint">Demo passcodes — view: <b>roadtrip</b> · planner: <b>planner123</b></div>
+  </div>
+</div>
+
+<header>
+  <div class="brand">
+    <div class="brand-badge">🧭</div>
+    <div>
+      <p class="eyebrow">DFW → Memphis → Gatlinburg</p>
+      <h1 class="display">Family Road Trip</h1>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="mode-pill" id="planner-toggle">🔒 View mode</button>
+  </div>
+</header>
+
+<div class="day-tabs" id="day-tabs"></div>
+
+<div class="layout">
+  <div class="map-col">
+    <div id="map"></div>
+    <div class="progress-wrap">
+      <div class="progress-top">
+        <span id="progress-label">0 of 0 stops</span>
+        <span id="progress-pct">0%</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+      <button class="btn gps-btn" id="gps-toggle">📍 Share my location</button>
+      <div class="gps-status" id="gps-status">Location sharing is off</div>
+    </div>
+  </div>
+
+  <div class="cards-col">
+    <div class="day-summary" id="day-summary"></div>
+    <ul id="cards"></ul>
+    <button class="add-stop-btn planner-only" id="add-stop-btn">+ Add a stop</button>
+  </div>
+</div>
+
+<div id="modal-backdrop">
+  <div class="modal">
+    <h2 id="modal-title">Add a stop</h2>
+    <form id="stop-form">
+      <div class="field-row">
+        <div class="field"><label>Start time</label><input type="text" id="f-time" placeholder="9:45 AM" required></div>
+        <div class="field"><label>End time</label><input type="text" id="f-endtime" placeholder="10:45 AM"></div>
+      </div>
+      <div class="field"><label>Name</label><input type="text" id="f-name" placeholder="Kids Kingdom Playground" required></div>
+      <div class="field"><label>Address</label><input type="text" id="f-address" placeholder="101 Civic Center Dr, Sulphur Springs, TX"></div>
+      <div class="field-row">
+        <div class="field"><label>Latitude</label><input type="text" id="f-lat" placeholder="33.1385"></div>
+        <div class="field"><label>Longitude</label><input type="text" id="f-lng" placeholder="-95.6011"></div>
+      </div>
+      <div class="field-hint" style="margin:-6px 0 12px;">Tip: right-click a spot in Google Maps and copy the coordinates.</div>
+      <div class="field"><label>Type</label>
+        <select id="f-type">
+          <option value="playground">🛝 Playground</option>
+          <option value="park">🌳 Park</option>
+          <option value="landmark">🚂 Landmark</option>
+          <option value="overlook">🏞️ Scenic overlook</option>
+          <option value="hotel">🏨 Hotel</option>
+          <option value="nap">😴 Drive / nap window</option>
+        </select>
+      </div>
+      <div class="field"><label>Notes / activities</label><textarea id="f-notes" placeholder="What's happening here?"></textarea></div>
+      <div class="field"><label>Website (optional)</label><input type="text" id="f-website" placeholder="https://..."></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save stop</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+<script>
+/* ============================================================
+   DATA
+   ============================================================ */
+const TRIP_KEY = 'trip-itinerary-v1';
+const CURRENT_KEY = 'trip-current-stop-v1';
+const GPS_KEY = 'trip-car-gps-v1';
+
+const TYPE_ICON = {playground:'🛝', park:'🌳', landmark:'🚂', overlook:'🏞️', hotel:'🏨', nap:'😴'};
+
+function uid(){ return 'id' + Math.random().toString(36).slice(2,10); }
+
+function seedTrip(){
+  return {
+    days: [
+      {
+        id:'day1', label:'Day 1', title:'DFW to Memphis', date:'',
+        stops:[
+          {id:uid(), time:'8:00 AM', endTime:'', name:'Depart DFW Area', address:'Dallas–Fort Worth, TX', lat:32.7767,lng:-96.7970, type:'hotel', notes:'Trip begins! First driving leg: ~95 miles (~1h 45m).', website:''},
+          {id:uid(), time:'9:45 AM', endTime:'10:45 AM', name:'Kids Kingdom Playground', address:'101 Civic Center Dr, Sulphur Springs, TX 75482', lat:33.1385,lng:-95.6011, type:'playground', notes:'Fenced-in wooden playground with toddler-friendly ramps, swings, and climbing spots to burn morning energy.', website:'', driveNext:'~100 miles (~1h 35m) to next stop'},
+          {id:uid(), time:'12:20 PM', endTime:'1:20 PM', name:'Spring Lake Park', address:'4303 Park Rd, Texarkana, TX 75501', lat:33.4251,lng:-94.0477, type:'park', notes:'Lunch break (drive-thru or picnic), feed the ducks at the pond, shaded playground structures.', website:'', driveNext:'~77 miles (~1h 15m) to next stop'},
+          {id:uid(), time:'2:35 PM', endTime:'3:20 PM', name:'Feaster Park', address:'2301 Pine St, Arkadelphia, AR 71923', lat:34.1209,lng:-93.0538, type:'park', notes:'Quick stretch, bathroom break, and playground run.', website:'', driveNext:'~200 miles (~3h 10m) to next stop'},
+          {id:uid(), time:'', endTime:'', name:'Car Nap Time', address:'Toward Little Rock, AR', lat:34.6, lng:-91.9, type:'nap', notes:'This long stretch past Arkadelphia through Little Rock is the perfect window for both kids to sleep in the car.', website:''},
+          {id:uid(), time:'6:30 PM', endTime:'7:30 PM', name:'Shelby Farms – Woodland Discovery Playground', address:'6903 Great View Dr N, Memphis, TN 38134', lat:35.1622,lng:-89.8180, type:'playground', notes:'An unbelievable playground experience with play nests, slides, and sand areas to stretch after the long drive.', website:''},
+          {id:uid(), time:'7:45 PM', endTime:'', name:'Hotel Check-in — Memphis', address:'East Memphis, TN (Hilton Memphis or Hyatt Place/Primacy Pkwy)', lat:35.1156,lng:-89.8935, type:'hotel', notes:'Recommended East Memphis hotels, 5–10 min from Shelby Farms.', website:''}
+        ]
+      },
+      {
+        id:'day2', label:'Day 2', title:'Memphis to Gatlinburg', date:'',
+        stops:[
+          {id:uid(), time:'8:00 AM', endTime:'', name:'Depart Memphis', address:'East Memphis Area, TN', lat:35.1156,lng:-89.8935, type:'hotel', notes:'Second leg begins! ~85 miles (~1h 20m) to first stop.', website:''},
+          {id:uid(), time:'9:20 AM', endTime:'10:20 AM', name:'Casey Jones Village', address:'56 Casey Jones Ln, Jackson, TN 38305', lat:35.5681,lng:-88.8134, type:'landmark', notes:'Toddlers can climb on a real 35-ton vintage locomotive, explore train displays, and grab ice cream at the old-fashioned parlor.', website:'', driveNext:'~130 miles (~1h 50m) to next stop'},
+          {id:uid(), time:'12:10 PM', endTime:'1:10 PM', name:'Cumberland Park', address:'592 S 1st St, Nashville, TN 37213', lat:36.1636,lng:-86.7712, type:'park', notes:'Lunch break, then toddler sensory play zones, climbing walls, and splash pads along the Cumberland River.', website:'', driveNext:'~80 miles (~1h 20m) to next stop'},
+          {id:uid(), time:'2:30 PM', endTime:'3:15 PM', name:'Dogwood Park', address:'30 E Broad St, Cookeville, TN 38501', lat:36.1628,lng:-85.5016, type:'park', notes:'Massive accessible playground (Heart of the Park), splash pad, shaded pavilions, and clean restrooms — right off I-40 Exit 286.', website:'', driveNext:'~140 miles (~2h 30m) to next stop'},
+          {id:uid(), time:'', endTime:'', name:'Car Nap Time', address:'Past Knoxville toward the Smokies', lat:35.9, lng:-84.1, type:'nap', notes:'This 2.5-hour stretch is the perfect afternoon nap window for both kids.', website:''},
+          {id:uid(), time:'5:45 PM', endTime:'6:15 PM', name:'Foothills Parkway Overlook', address:'Walland / Townsend section, via US-321 / TN-73', lat:35.6600,lng:-83.7100, type:'overlook', notes:'Skip highway traffic and enter the Smokies via the scenic parkway — stop for family photos with sweeping mountain views at sunset.', website:''},
+          {id:uid(), time:'7:00 PM', endTime:'', name:'Arrival — Gatlinburg', address:'Gatlinburg, TN', lat:35.7143,lng:-83.5102, type:'hotel', notes:'Cabin / hotel check-in, unpack, and grab dinner!', website:''}
+        ]
+      }
+    ]
+  };
+}
+
+let trip = null;
+let currentStopMap = {};   // {dayId: stopId}
+let activeDay = 'day1';
+let isPlanner = false;
+let map = null;
+let leafletLayers = { line:null, pins:[], car:null };
+let gpsWatchId = null;
+let gpsPollInterval = null;
+let editingStopId = null;
+
+/* ============================================================
+   STORAGE
+   ============================================================ */
+async function loadTrip(){
+  try{
+    const res = await window.storage.get(TRIP_KEY, true);
+    if(res && res.value) return JSON.parse(res.value);
+  }catch(e){ /* not found yet */ }
+  const seeded = seedTrip();
+  await saveTrip(seeded);
+  return seeded;
+}
+async function saveTrip(t){
+  trip = t;
+  try{ await window.storage.set(TRIP_KEY, JSON.stringify(t), true); }
+  catch(e){ console.error('save trip failed', e); }
+}
+async function loadCurrentStops(){
+  try{
+    const res = await window.storage.get(CURRENT_KEY, true);
+    if(res && res.value) return JSON.parse(res.value);
+  }catch(e){}
+  return {};
+}
+async function saveCurrentStops(){
+  try{ await window.storage.set(CURRENT_KEY, JSON.stringify(currentStopMap), true); }
+  catch(e){ console.error(e); }
+}
+async function saveGps(lat,lng,accuracy){
+  try{ await window.storage.set(GPS_KEY, JSON.stringify({lat,lng,accuracy,t:Date.now()}), true); }
+  catch(e){ console.error(e); }
+}
+async function loadGps(){
+  try{
+    const res = await window.storage.get(GPS_KEY, true);
+    if(res && res.value) return JSON.parse(res.value);
+  }catch(e){}
+  return null;
+}
+
+/* ============================================================
+   GATE
+   ============================================================ */
+const VIEW_PASS = 'roadtrip';
+const PLANNER_PASS = 'planner123';
+
+document.getElementById('passcode-submit').onclick = tryPasscode;
+document.getElementById('passcode-input').addEventListener('keydown', e=>{ if(e.key==='Enter') tryPasscode(); });
+
+function tryPasscode(){
+  const val = document.getElementById('passcode-input').value.trim();
+  const err = document.getElementById('gate-error');
+  if(val === PLANNER_PASS){
+    isPlanner = true;
+    document.getElementById('gate').style.display='none';
+    document.body.classList.add('planner-mode');
+    updatePlannerPill();
+    init();
+  } else if(val === VIEW_PASS){
+    isPlanner = false;
+    document.getElementById('gate').style.display='none';
+    init();
+  } else {
+    err.textContent = "That passcode didn't match. Try again.";
+  }
+}
+
+document.getElementById('planner-toggle').onclick = ()=>{
+  if(isPlanner){
+    isPlanner = false;
+    document.body.classList.remove('planner-mode');
+    updatePlannerPill();
+    renderCards();
+  } else {
+    const p = prompt('Enter planner passcode to unlock editing:');
+    if(p === PLANNER_PASS){
+      isPlanner = true;
+      document.body.classList.add('planner-mode');
+      updatePlannerPill();
+      renderCards();
+    } else if(p !== null){
+      alert('Incorrect planner passcode.');
+    }
+  }
+};
+function updatePlannerPill(){
+  const pill = document.getElementById('planner-toggle');
+  pill.textContent = isPlanner ? '✏️ Planner mode' : '🔒 View mode';
+  pill.classList.toggle('active', isPlanner);
+}
+
+/* ============================================================
+   INIT
+   ============================================================ */
+async function init(){
+  trip = await loadTrip();
+  currentStopMap = await loadCurrentStops();
+  initMap();
+  renderDayTabs();
+  renderAll();
+  startGpsPolling();
+}
+
+function renderDayTabs(){
+  const wrap = document.getElementById('day-tabs');
+  wrap.innerHTML = '';
+  trip.days.forEach(d=>{
+    const btn = document.createElement('button');
+    btn.className = 'day-tab' + (d.id===activeDay ? ' active' : '');
+    btn.textContent = d.label + ': ' + d.title;
+    btn.onclick = ()=>{ activeDay = d.id; renderDayTabs(); renderAll(); };
+    wrap.appendChild(btn);
+  });
+}
+
+function renderAll(){
+  renderSummary();
+  renderCards();
+  renderMap();
+  renderProgress();
+}
+
+/* ============================================================
+   MAP
+   ============================================================ */
+function initMap(){
+  map = L.map('map', {scrollWheelZoom:false}).setView([34.5,-90.5], 6);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom:18, attribution:'© OpenStreetMap contributors'
+  }).addTo(map);
+}
+
+function currentDay(){ return trip.days.find(d=>d.id===activeDay); }
+
+function renderMap(){
+  const day = currentDay();
+  // clear old layers
+  if(leafletLayers.line) map.removeLayer(leafletLayers.line);
+  leafletLayers.pins.forEach(p=>map.removeLayer(p));
+  leafletLayers.pins = [];
+
+  const coords = day.stops.filter(s=>s.lat && s.lng).map(s=>[s.lat,s.lng]);
+  if(coords.length){
+    leafletLayers.line = L.polyline(coords, {color:'#3F6B4F', weight:4, dashArray:'2 10', lineCap:'round'}).addTo(map);
+    map.fitBounds(leafletLayers.line.getBounds(), {padding:[30,30]});
+  }
+  day.stops.forEach((s,i)=>{
+    if(!s.lat || !s.lng) return;
+    const icon = L.divIcon({
+      className:'stop-pin',
+      html: (s.type==='nap' ? '💤' : (i+1)),
+      iconSize:[26,26]
+    });
+    const m = L.marker([s.lat,s.lng], {icon}).addTo(map);
+    m.bindPopup(`<b>${escapeHtml(s.name)}</b><br>${escapeHtml(s.time||'')} ${s.endTime?'– '+escapeHtml(s.endTime):''}`);
+    leafletLayers.pins.push(m);
+  });
+  refreshCarMarker();
+}
+
+async function refreshCarMarker(){
+  if(!map) return;
+  const day = currentDay();
+  let pos = null;
+  const gps = await loadGps();
+  if(gps && (Date.now() - gps.t) < 10*60*1000){
+    pos = [gps.lat, gps.lng];
+  } else {
+    const curId = currentStopMap[day.id];
+    const stop = day.stops.find(s=>s.id===curId);
+    if(stop && stop.lat && stop.lng) pos = [stop.lat, stop.lng];
+  }
+  if(leafletLayers.car) { map.removeLayer(leafletLayers.car); leafletLayers.car = null; }
+  if(pos){
+    const carIcon = L.divIcon({className:'', html:'<div class="car-icon">🚙</div>', iconSize:[30,30]});
+    leafletLayers.car = L.marker(pos, {icon:carIcon, zIndexOffset:1000}).addTo(map);
+  }
+}
+
+/* ============================================================
+   SUMMARY / PROGRESS
+   ============================================================ */
+function renderSummary(){
+  const day = currentDay();
+  const el = document.getElementById('day-summary');
+  const realStops = day.stops.filter(s=>s.type!=='nap' && s.type!=='hotel');
+  el.innerHTML = `
+    <div><b>${day.stops[0]?.time||''} – ${day.stops[day.stops.length-1]?.time||''}</b>${day.title}</div>
+    <div><b>${realStops.length}</b>stops today</div>
+  `;
+}
+
+function renderProgress(){
+  const day = currentDay();
+  const stops = day.stops;
+  const curId = currentStopMap[day.id];
+  const idx = stops.findIndex(s=>s.id===curId);
+  const total = stops.length;
+  const done = idx >= 0 ? idx+1 : 0;
+  const pct = total ? Math.round((done/total)*100) : 0;
+  document.getElementById('progress-label').textContent = `${done} of ${total} stops`;
+  document.getElementById('progress-pct').textContent = pct + '%';
+  document.getElementById('progress-fill').style.width = pct + '%';
+}
+
+/* ============================================================
+   CARDS
+   ============================================================ */
+function escapeHtml(str){
+  return (str||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderCards(){
+  const day = currentDay();
+  const list = document.getElementById('cards');
+  list.innerHTML = '';
+  const curId = currentStopMap[day.id];
+
+  day.stops.forEach((s,i)=>{
+    const li = document.createElement('li');
+    li.className = 'stop-card' + (s.type==='nap' ? ' napcard' : '');
+    li.dataset.id = s.id;
+    const mapsHref = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(s.address || (s.lat+','+s.lng));
+    const websiteHref = s.website ? s.website : ('https://www.google.com/search?q=' + encodeURIComponent(s.name));
+    const isCurrent = s.id === curId;
+    li.innerHTML = `
+      <div class="sign">${s.type==='nap' ? '💤' : (i+1)}</div>
+      <div class="stop-body">
+        <div class="stop-top">
+          <div>
+            <div class="stop-time">${escapeHtml(s.time||'')}${s.endTime ? ' – '+escapeHtml(s.endTime) : ''}</div>
+            <div class="stop-name">${TYPE_ICON[s.type]||''} ${escapeHtml(s.name)}</div>
+          </div>
+        </div>
+        ${s.address ? `<div class="stop-address">${escapeHtml(s.address)}</div>` : ''}
+        ${s.notes ? `<div class="stop-notes">${escapeHtml(s.notes)}</div>` : ''}
+        <div class="stop-links">
+          ${s.lat ? `<a class="chip" href="${mapsHref}" target="_blank" rel="noopener">📍 Directions</a>` : ''}
+          <a class="chip" href="${websiteHref}" target="_blank" rel="noopener">🔗 More info</a>
+        </div>
+        <div class="stop-actions">
+          <button class="btn here-btn ${isCurrent?'is-current':''}" data-action="here">${isCurrent ? '✔ We are here' : 'We are here'}</button>
+          <span class="drag-handle planner-only">⠿⠿ Drag</span>
+          <button class="icon-btn planner-only" data-action="edit">Edit</button>
+          <button class="icon-btn danger planner-only" data-action="delete">Delete</button>
+        </div>
+        ${s.driveNext ? `<div class="drive-note">🚗 ${escapeHtml(s.driveNext)}</div>` : ''}
+      </div>
+    `;
+    li.querySelector('[data-action="here"]').onclick = ()=> setCurrentStop(day.id, s.id);
+    const editBtn = li.querySelector('[data-action="edit"]');
+    if(editBtn) editBtn.onclick = ()=> openStopModal(s.id);
+    const delBtn = li.querySelector('[data-action="delete"]');
+    if(delBtn) delBtn.onclick = ()=> deleteStop(s.id);
+    list.appendChild(li);
+  });
+
+  if(window._sortable) window._sortable.destroy();
+  window._sortable = new Sortable(list, {
+    handle:'.drag-handle',
+    animation:150,
+    disabled: !isPlanner,
+    onEnd: async ()=>{
+      const newOrder = Array.from(list.children).map(li=>li.dataset.id);
+      const day = currentDay();
+      day.stops.sort((a,b)=> newOrder.indexOf(a.id) - newOrder.indexOf(b.id));
+      await saveTrip(trip);
+      renderMap();
+      renderCards();
+    }
+  });
+}
+
+async function setCurrentStop(dayId, stopId){
+  currentStopMap[dayId] = (currentStopMap[dayId]===stopId) ? null : stopId;
+  await saveCurrentStops();
+  renderCards();
+  renderProgress();
+  refreshCarMarker();
+}
+
+async function deleteStop(stopId){
+  if(!confirm('Remove this stop from the itinerary?')) return;
+  const day = currentDay();
+  day.stops = day.stops.filter(s=>s.id!==stopId);
+  await saveTrip(trip);
+  renderMap(); renderCards(); renderSummary();
+}
+
+/* ============================================================
+   ADD / EDIT MODAL
+   ============================================================ */
+const backdrop = document.getElementById('modal-backdrop');
+document.getElementById('add-stop-btn').onclick = ()=> openStopModal(null);
+document.getElementById('modal-cancel').onclick = closeModal;
+backdrop.onclick = (e)=>{ if(e.target===backdrop) closeModal(); };
+
+function openStopModal(stopId){
+  editingStopId = stopId;
+  const day = currentDay();
+  const s = stopId ? day.stops.find(x=>x.id===stopId) : null;
+  document.getElementById('modal-title').textContent = s ? 'Edit stop' : 'Add a stop';
+  document.getElementById('f-time').value = s? s.time||'' : '';
+  document.getElementById('f-endtime').value = s? s.endTime||'' : '';
+  document.getElementById('f-name').value = s? s.name||'' : '';
+  document.getElementById('f-address').value = s? s.address||'' : '';
+  document.getElementById('f-lat').value = s? (s.lat||'') : '';
+  document.getElementById('f-lng').value = s? (s.lng||'') : '';
+  document.getElementById('f-type').value = s? s.type||'playground' : 'playground';
+  document.getElementById('f-notes').value = s? s.notes||'' : '';
+  document.getElementById('f-website').value = s? s.website||'' : '';
+  backdrop.classList.add('open');
+}
+function closeModal(){ backdrop.classList.remove('open'); editingStopId=null; }
+
+document.getElementById('stop-form').onsubmit = async (e)=>{
+  e.preventDefault();
+  const day = currentDay();
+  const data = {
+    time: document.getElementById('f-time').value.trim(),
+    endTime: document.getElementById('f-endtime').value.trim(),
+    name: document.getElementById('f-name').value.trim(),
+    address: document.getElementById('f-address').value.trim(),
+    lat: parseFloat(document.getElementById('f-lat').value) || null,
+    lng: parseFloat(document.getElementById('f-lng').value) || null,
+    type: document.getElementById('f-type').value,
+    notes: document.getElementById('f-notes').value.trim(),
+    website: document.getElementById('f-website').value.trim()
+  };
+  if(editingStopId){
+    const s = day.stops.find(x=>x.id===editingStopId);
+    Object.assign(s, data);
+  } else {
+    data.id = uid();
+    day.stops.push(data);
+  }
+  await saveTrip(trip);
+  closeModal();
+  renderMap(); renderCards(); renderSummary();
+};
+
+/* ============================================================
+   GPS SHARING
+   ============================================================ */
+const gpsBtn = document.getElementById('gps-toggle');
+const gpsStatus = document.getElementById('gps-status');
+gpsBtn.onclick = ()=>{
+  if(gpsWatchId){
+    navigator.geolocation.clearWatch(gpsWatchId);
+    gpsWatchId = null;
+    gpsBtn.classList.remove('sharing');
+    gpsBtn.textContent = '📍 Share my location';
+    gpsStatus.textContent = 'Location sharing is off';
+    return;
+  }
+  if(!navigator.geolocation){
+    alert('Geolocation is not available on this device/browser.');
+    return;
+  }
+  gpsWatchId = navigator.geolocation.watchPosition(
+    async (pos)=>{
+      await saveGps(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+      gpsStatus.textContent = 'Sharing live — last update ' + new Date().toLocaleTimeString();
+      refreshCarMarker();
+    },
+    (err)=>{ gpsStatus.textContent = 'Location error: ' + err.message; },
+    {enableHighAccuracy:true, maximumAge:15000, timeout:20000}
+  );
+  gpsBtn.classList.add('sharing');
+  gpsBtn.textContent = '📍 Stop sharing';
+  gpsStatus.textContent = 'Starting location sharing…';
+};
+
+function startGpsPolling(){
+  if(gpsPollInterval) clearInterval(gpsPollInterval);
+  gpsPollInterval = setInterval(()=>{
+    refreshCarMarker();
+  }, 20000);
+}
+</script>
+</body>
+</html>
