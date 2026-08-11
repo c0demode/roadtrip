@@ -143,7 +143,12 @@
   .stop-card{
     background:var(--cream);color:var(--ink);border-radius:var(--radius);
     padding:14px 14px 14px 0;box-shadow:var(--shadow);display:flex;gap:0;position:relative;
-    overflow:hidden;
+    overflow:hidden;cursor:pointer;transition:outline .15s ease, box-shadow .15s ease;
+    outline:3px solid transparent;
+  }
+  .stop-card.selected{
+    outline:3px solid var(--mustard);
+    box-shadow:0 0 0 4px rgba(227,167,43,0.28), var(--shadow);
   }
   .stop-card.napcard{background:var(--sage);color:var(--cream);}
   .stop-card.napcard .stop-address, .stop-card.napcard .stop-notes{color:rgba(251,244,228,0.85);}
@@ -221,6 +226,13 @@
     background:var(--brick);color:#fff;border-radius:50%;
     width:26px !important;height:26px !important;font-weight:700;font-size:12px;
     border:2px solid var(--cream);box-shadow:0 2px 4px rgba(0,0,0,0.3);
+    transition:all .15s ease;
+  }
+  .leaflet-marker-icon.stop-pin.selected{
+    background:var(--mustard);color:var(--navy);
+    width:34px !important;height:34px !important;font-size:14px;
+    border:3px solid var(--navy);box-shadow:0 0 0 5px rgba(227,167,43,0.35), 0 3px 6px rgba(0,0,0,0.4);
+    z-index:1000 !important;
   }
 </style>
 </head>
@@ -359,10 +371,11 @@ let currentStopMap = {};   // {dayId: stopId}
 let activeDay = 'day1';
 let isPlanner = false;
 let map = null;
-let leafletLayers = { line:null, pins:[], car:null };
+let leafletLayers = { line:null, pins:[], pinsById:{}, car:null };
 let gpsWatchId = null;
 let gpsPollInterval = null;
 let editingStopId = null;
+let selectedStopId = null;
 
 /* ============================================================
    STORAGE
@@ -504,6 +517,7 @@ function renderMap(){
   if(leafletLayers.line) map.removeLayer(leafletLayers.line);
   leafletLayers.pins.forEach(p=>map.removeLayer(p));
   leafletLayers.pins = [];
+  leafletLayers.pinsById = {};
 
   const coords = day.stops.filter(s=>s.lat && s.lng).map(s=>[s.lat,s.lng]);
   if(coords.length){
@@ -512,16 +526,50 @@ function renderMap(){
   }
   day.stops.forEach((s,i)=>{
     if(!s.lat || !s.lng) return;
+    const isSel = s.id === selectedStopId;
     const icon = L.divIcon({
-      className:'stop-pin',
+      className:'stop-pin' + (isSel ? ' selected' : ''),
       html: (s.type==='nap' ? '💤' : (i+1)),
-      iconSize:[26,26]
+      iconSize: isSel ? [34,34] : [26,26]
     });
     const m = L.marker([s.lat,s.lng], {icon}).addTo(map);
     m.bindPopup(`<b>${escapeHtml(s.name)}</b><br>${escapeHtml(s.time||'')} ${s.endTime?'– '+escapeHtml(s.endTime):''}`);
+    m.on('click', ()=> selectStop(s.id));
     leafletLayers.pins.push(m);
+    leafletLayers.pinsById[s.id] = m;
   });
   refreshCarMarker();
+}
+
+function selectStop(stopId){
+  const day = currentDay();
+  selectedStopId = (selectedStopId === stopId) ? null : stopId;
+
+  // highlight matching card
+  document.querySelectorAll('.stop-card').forEach(li=>{
+    li.classList.toggle('selected', li.dataset.id === selectedStopId);
+  });
+  if(selectedStopId){
+    const li = document.querySelector(`.stop-card[data-id="${selectedStopId}"]`);
+    if(li) li.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+
+  // highlight matching marker(s)
+  day.stops.forEach((s,i)=>{
+    const pin = leafletLayers.pinsById[s.id];
+    if(!pin) return;
+    const isSel = s.id === selectedStopId;
+    const icon = L.divIcon({
+      className:'stop-pin' + (isSel ? ' selected' : ''),
+      html: (s.type==='nap' ? '💤' : (i+1)),
+      iconSize: isSel ? [34,34] : [26,26]
+    });
+    pin.setIcon(icon);
+    if(isSel){
+      map.panTo(pin.getLatLng(), {animate:true});
+      pin.openPopup();
+    }
+  });
 }
 
 async function refreshCarMarker(){
@@ -581,10 +629,11 @@ function renderCards(){
   const list = document.getElementById('cards');
   list.innerHTML = '';
   const curId = currentStopMap[day.id];
+  const curSelected = selectedStopId;
 
   day.stops.forEach((s,i)=>{
     const li = document.createElement('li');
-    li.className = 'stop-card' + (s.type==='nap' ? ' napcard' : '');
+    li.className = 'stop-card' + (s.type==='nap' ? ' napcard' : '') + (s.id===curSelected ? ' selected' : '');
     li.dataset.id = s.id;
     const mapsHref = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(s.address || (s.lat+','+s.lng));
     const websiteHref = s.website ? s.website : ('https://www.google.com/search?q=' + encodeURIComponent(s.name));
@@ -618,6 +667,10 @@ function renderCards(){
     if(editBtn) editBtn.onclick = ()=> openStopModal(s.id);
     const delBtn = li.querySelector('[data-action="delete"]');
     if(delBtn) delBtn.onclick = ()=> deleteStop(s.id);
+    li.addEventListener('click', (e)=>{
+      if(e.target.closest('button') || e.target.closest('a')) return;
+      selectStop(s.id);
+    });
     list.appendChild(li);
   });
 
