@@ -511,18 +511,60 @@ function initMap(){
 
 function currentDay(){ return trip.days.find(d=>d.id===activeDay); }
 
+function clearRouteLine(){
+  if(leafletLayers.line){
+    (Array.isArray(leafletLayers.line) ? leafletLayers.line : [leafletLayers.line]).forEach(l=>map.removeLayer(l));
+    leafletLayers.line = null;
+  }
+}
+
+let routeRequestToken = 0;
+
+async function fetchRoadRoute(coords){
+  // coords: array of [lat,lng] -> OSRM wants lon,lat
+  if(coords.length < 2) return null;
+  const coordStr = coords.map(c=>`${c[1]},${c[0]}`).join(';');
+  const url = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
+  try{
+    const res = await fetch(url);
+    const data = await res.json();
+    if(data && data.code === 'Ok' && data.routes && data.routes[0]){
+      return data.routes[0].geometry.coordinates.map(c=>[c[1], c[0]]);
+    }
+  }catch(e){ console.warn('Road routing unavailable, using straight line.', e); }
+  return null;
+}
+
+function drawStraightLine(coords){
+  clearRouteLine();
+  leafletLayers.line = L.polyline(coords, {color:'#3F6B4F', weight:4, dashArray:'2 10', lineCap:'round'}).addTo(map);
+}
+
+function drawRoadLine(coords){
+  clearRouteLine();
+  const base = L.polyline(coords, {color:'#2C4D37', weight:6, opacity:0.92, lineJoin:'round', lineCap:'round'}).addTo(map);
+  const stripe = L.polyline(coords, {color:'#FBF4E4', weight:2, opacity:0.55, dashArray:'8 10', lineJoin:'round'}).addTo(map);
+  leafletLayers.line = [base, stripe];
+}
+
 function renderMap(){
   const day = currentDay();
   // clear old layers
-  if(leafletLayers.line) map.removeLayer(leafletLayers.line);
+  clearRouteLine();
   leafletLayers.pins.forEach(p=>map.removeLayer(p));
   leafletLayers.pins = [];
   leafletLayers.pinsById = {};
 
   const coords = day.stops.filter(s=>s.lat && s.lng).map(s=>[s.lat,s.lng]);
   if(coords.length){
-    leafletLayers.line = L.polyline(coords, {color:'#3F6B4F', weight:4, dashArray:'2 10', lineCap:'round'}).addTo(map);
-    map.fitBounds(leafletLayers.line.getBounds(), {padding:[30,30]});
+    drawStraightLine(coords);
+    map.fitBounds(L.latLngBounds(coords), {padding:[30,30]});
+
+    const myToken = ++routeRequestToken;
+    fetchRoadRoute(coords).then(roadCoords=>{
+      if(myToken !== routeRequestToken) return; // day changed while waiting
+      if(roadCoords) drawRoadLine(roadCoords);
+    });
   }
   day.stops.forEach((s,i)=>{
     if(!s.lat || !s.lng) return;
