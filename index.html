@@ -327,9 +327,10 @@
 
 <!-- ============================================================
      FIREBASE (Google Sign-In + Firestore)
-     This is a module script, so it runs deferred/after parsing —
-     window.RTFirebase is guaranteed ready before any button click
-     or before init() runs below.
+     type="module" scripts run deferred — AFTER the classic script
+     below has already executed once. window.RTFirebase therefore
+     isn't ready until the 'rtfirebase-ready' event fires; see the
+     startAuthListener() guard in the classic script below.
      ============================================================ -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -386,6 +387,11 @@
       });
     }
   };
+
+  // Module scripts run deferred (after the classic script below has
+  // already executed), so anything that needs RTFirebase at top level
+  // has to wait for this event rather than assuming it's ready.
+  window.dispatchEvent(new Event('rtfirebase-ready'));
 </script>
 
 <script>
@@ -517,24 +523,34 @@ document.getElementById('signout-btn').onclick = ()=>{
   window.RTFirebase.signOutUser();
 };
 
-window.RTFirebase.onAuthStateChanged(async (user)=>{
-  if(user){
-    const role = await window.RTFirebase.getMyRole(user.uid);
-    if(!role){
-      showPendingAccess(user);
-      return;
+function startAuthListener(){
+  window.RTFirebase.onAuthStateChanged(async (user)=>{
+    if(user){
+      const role = await window.RTFirebase.getMyRole(user.uid);
+      if(!role){
+        showPendingAccess(user);
+        return;
+      }
+      isPlanner = (role === 'planner');
+      document.getElementById('gate').style.display = 'none';
+      document.body.classList.toggle('planner-mode', isPlanner);
+      updatePlannerPill();
+      updateUserPill(user);
+      await init();
+    } else {
+      document.getElementById('gate').style.display = 'flex';
+      document.getElementById('user-pill').style.display = 'none';
     }
-    isPlanner = (role === 'planner');
-    document.getElementById('gate').style.display = 'none';
-    document.body.classList.toggle('planner-mode', isPlanner);
-    updatePlannerPill();
-    updateUserPill(user);
-    await init();
-  } else {
-    document.getElementById('gate').style.display = 'flex';
-    document.getElementById('user-pill').style.display = 'none';
-  }
-});
+  });
+}
+// window.RTFirebase is set up by the module script above, which runs
+// deferred (after this point in the document). Wait for its ready
+// signal instead of calling it immediately.
+if(window.RTFirebase){
+  startAuthListener(); // module already ran, e.g. on a fast reload
+} else {
+  window.addEventListener('rtfirebase-ready', startAuthListener, { once: true });
+}
 
 function showPendingAccess(user){
   const card = document.querySelector('.gate-card');
