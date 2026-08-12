@@ -92,6 +92,7 @@
     color:var(--cream);background:transparent;cursor:pointer;
   }
   .mode-pill.active{background:var(--mustard);color:var(--navy);border-color:var(--mustard);}
+  #user-pill{cursor:default;opacity:0.85;}
 
   /* ---------- Day tabs ---------- */
   .day-tabs{
@@ -242,11 +243,9 @@
   <div class="gate-card">
     <div class="route-mark">🚗</div>
     <h1 class="display">Family Road Trip</h1>
-    <p>Enter the trip passcode to view the itinerary.</p>
-    <input type="password" id="passcode-input" placeholder="Passcode" autocomplete="off">
-    <button class="btn btn-primary" id="passcode-submit">Enter</button>
+    <p>Sign in with your family Google account to view the itinerary.</p>
+    <button class="btn btn-primary" id="google-signin-btn">Sign in with Google</button>
     <div class="gate-error" id="gate-error"></div>
-    <div class="gate-hint">Demo passcodes — view: <b>roadtrip</b> · planner: <b>planner123</b></div>
   </div>
 </div>
 
@@ -259,7 +258,9 @@
     </div>
   </div>
   <div class="header-actions">
+    <span class="mode-pill" id="user-pill" style="display:none;"></span>
     <button class="mode-pill" id="planner-toggle">🔒 View mode</button>
+    <button class="mode-pill" id="signout-btn">Sign out</button>
   </div>
 </header>
 
@@ -323,13 +324,84 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+
+<!-- ============================================================
+     FIREBASE (Google Sign-In + Firestore)
+     This is a module script, so it runs deferred/after parsing —
+     window.RTFirebase is guaranteed ready before any button click
+     or before init() runs below.
+     ============================================================ -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import {
+    getFirestore, doc, getDoc, setDoc, onSnapshot
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyACr4J3jK2_ecsxtUfMh9t3rCnX_zWv8Ck",
+    authDomain: "trip-planner-ad952.firebaseapp.com",
+    projectId: "trip-planner-ad952",
+    storageBucket: "trip-planner-ad952.firebasestorage.app",
+    messagingSenderId: "892454695472",
+    appId: "1:892454695472:web:778991d873628c5be533f5"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+  const provider = new GoogleAuthProvider();
+
+  // path is a "collection/docId" string, e.g. "tripdata/trip"
+  function refFor(path) {
+    const [col, id] = path.split('/');
+    return doc(db, col, id);
+  }
+
+  window.RTFirebase = {
+    signIn: () => signInWithPopup(auth, provider),
+    signOutUser: () => signOut(auth),
+    onAuthStateChanged: (cb) => onAuthStateChanged(auth, cb),
+
+    async loadDoc(path) {
+      const snap = await getDoc(refFor(path));
+      return snap.exists() ? snap.data().value : null;
+    },
+    async saveDoc(path, value) {
+      await setDoc(refFor(path), { value, updatedAt: Date.now() });
+    },
+    // Reads roles/{uid} — returns 'planner', 'viewer', or null if no
+    // role has been granted yet (nothing PII-bearing in this call).
+    async getMyRole(uid) {
+      const snap = await getDoc(doc(db, 'roles', uid));
+      return snap.exists() ? snap.data().role : null;
+    },
+    // live subscription — used for the trip doc so every open tab/device
+    // updates automatically when the planner makes a change
+    subscribeDoc(path, cb) {
+      return onSnapshot(refFor(path), (snap) => {
+        cb(snap.exists() ? snap.data().value : null);
+      });
+    }
+  };
+</script>
+
 <script>
 /* ============================================================
    DATA
    ============================================================ */
-const TRIP_KEY = 'trip-itinerary-v1';
-const CURRENT_KEY = 'trip-current-stop-v1';
-const GPS_KEY = 'trip-car-gps-v1';
+// NOTE: trip data now lives in Firestore (see RTFirebase above),
+// not window.storage — window.storage only works inside Claude's
+// artifact preview, not on the deployed site.
+const TRIP_PATH = 'tripdata/trip';
+const CURRENT_PATH = 'tripdata/currentStops';
+const GPS_PATH = 'tripdata/gps';
+
+// Roles (planner/viewer) are looked up per-user from Firestore's
+// roles/{uid} collection — see RTFirebase.getMyRole. No emails or
+// allowlists live in this file, so it's safe to commit publicly.
 
 const TYPE_ICON = {playground:'🛝', park:'🌳', landmark:'🚂', overlook:'🏞️', hotel:'🏨', nap:'😴'};
 
@@ -378,90 +450,122 @@ let editingStopId = null;
 let selectedStopId = null;
 
 /* ============================================================
-   STORAGE
+   STORAGE (Firestore)
    ============================================================ */
+let tripUnsubscribe = null;
+
 async function loadTrip(){
   try{
-    const res = await window.storage.get(TRIP_KEY, true);
-    if(res && res.value) return JSON.parse(res.value);
-  }catch(e){ /* not found yet */ }
+    const value = await window.RTFirebase.loadDoc(TRIP_PATH);
+    if(value) return value;
+  }catch(e){ console.error('load trip failed', e); }
   const seeded = seedTrip();
   await saveTrip(seeded);
   return seeded;
 }
 async function saveTrip(t){
   trip = t;
-  try{ await window.storage.set(TRIP_KEY, JSON.stringify(t), true); }
+  try{ await window.RTFirebase.saveDoc(TRIP_PATH, t); }
   catch(e){ console.error('save trip failed', e); }
+}
+// Keeps every open tab/device in sync live when the planner edits the trip.
+function subscribeTripUpdates(){
+  if(tripUnsubscribe) tripUnsubscribe();
+  tripUnsubscribe = window.RTFirebase.subscribeDoc(TRIP_PATH, (value)=>{
+    if(!value) return;
+    trip = value;
+    renderDayTabs(); renderAll();
+  });
 }
 async function loadCurrentStops(){
   try{
-    const res = await window.storage.get(CURRENT_KEY, true);
-    if(res && res.value) return JSON.parse(res.value);
-  }catch(e){}
+    const value = await window.RTFirebase.loadDoc(CURRENT_PATH);
+    if(value) return value;
+  }catch(e){ console.error(e); }
   return {};
 }
 async function saveCurrentStops(){
-  try{ await window.storage.set(CURRENT_KEY, JSON.stringify(currentStopMap), true); }
+  try{ await window.RTFirebase.saveDoc(CURRENT_PATH, currentStopMap); }
   catch(e){ console.error(e); }
 }
 async function saveGps(lat,lng,accuracy){
-  try{ await window.storage.set(GPS_KEY, JSON.stringify({lat,lng,accuracy,t:Date.now()}), true); }
+  try{ await window.RTFirebase.saveDoc(GPS_PATH, {lat,lng,accuracy,t:Date.now()}); }
   catch(e){ console.error(e); }
 }
 async function loadGps(){
-  try{
-    const res = await window.storage.get(GPS_KEY, true);
-    if(res && res.value) return JSON.parse(res.value);
-  }catch(e){}
-  return null;
+  try{ return await window.RTFirebase.loadDoc(GPS_PATH); }
+  catch(e){ return null; }
 }
 
 /* ============================================================
-   GATE
+   GATE (Google Sign-In)
    ============================================================ */
-const VIEW_PASS = 'roadtrip';
-const PLANNER_PASS = 'planner123';
-
-document.getElementById('passcode-submit').onclick = tryPasscode;
-document.getElementById('passcode-input').addEventListener('keydown', e=>{ if(e.key==='Enter') tryPasscode(); });
-
-function tryPasscode(){
-  const val = document.getElementById('passcode-input').value.trim();
+document.getElementById('google-signin-btn').onclick = async ()=>{
   const err = document.getElementById('gate-error');
-  if(val === PLANNER_PASS){
-    isPlanner = true;
-    document.getElementById('gate').style.display='none';
-    document.body.classList.add('planner-mode');
-    updatePlannerPill();
-    init();
-  } else if(val === VIEW_PASS){
-    isPlanner = false;
-    document.getElementById('gate').style.display='none';
-    init();
-  } else {
-    err.textContent = "That passcode didn't match. Try again.";
-  }
-}
-
-document.getElementById('planner-toggle').onclick = ()=>{
-  if(isPlanner){
-    isPlanner = false;
-    document.body.classList.remove('planner-mode');
-    updatePlannerPill();
-    renderCards();
-  } else {
-    const p = prompt('Enter planner passcode to unlock editing:');
-    if(p === PLANNER_PASS){
-      isPlanner = true;
-      document.body.classList.add('planner-mode');
-      updatePlannerPill();
-      renderCards();
-    } else if(p !== null){
-      alert('Incorrect planner passcode.');
-    }
+  err.textContent = '';
+  try{
+    await window.RTFirebase.signIn();
+    // init() runs from the onAuthStateChanged listener below once
+    // Firebase confirms the sign-in — no need to call it here.
+  }catch(e){
+    err.textContent = "Sign-in didn't go through — try again.";
+    console.error(e);
   }
 };
+
+document.getElementById('signout-btn').onclick = ()=>{
+  window.RTFirebase.signOutUser();
+};
+
+window.RTFirebase.onAuthStateChanged(async (user)=>{
+  if(user){
+    const role = await window.RTFirebase.getMyRole(user.uid);
+    if(!role){
+      showPendingAccess(user);
+      return;
+    }
+    isPlanner = (role === 'planner');
+    document.getElementById('gate').style.display = 'none';
+    document.body.classList.toggle('planner-mode', isPlanner);
+    updatePlannerPill();
+    updateUserPill(user);
+    await init();
+  } else {
+    document.getElementById('gate').style.display = 'flex';
+    document.getElementById('user-pill').style.display = 'none';
+  }
+});
+
+function showPendingAccess(user){
+  const card = document.querySelector('.gate-card');
+  card.innerHTML = `
+    <div class="route-mark">🕒</div>
+    <h1 class="display">Almost there</h1>
+    <p>Signed in as ${escapeHtml(user.email)}, but you don't have access to this trip yet.
+    Ask the trip organizer to add you.</p>
+    <button class="btn btn-ghost" id="signout-pending-btn">Sign out</button>
+  `;
+  document.getElementById('gate').style.display = 'flex';
+  document.getElementById('signout-pending-btn').onclick = ()=> window.RTFirebase.signOutUser();
+}
+
+// A planner can still preview the app as a viewer; this never grants
+// access, it only toggles the view within an already-granted role.
+document.getElementById('planner-toggle').onclick = ()=>{
+  if(!myRole || myRole !== 'planner') return;
+  isPlanner = !isPlanner;
+  document.body.classList.toggle('planner-mode', isPlanner);
+  updatePlannerPill();
+  renderCards();
+};
+
+let myRole = null;
+function updateUserPill(user){
+  myRole = isPlanner ? 'planner' : 'viewer';
+  const pill = document.getElementById('user-pill');
+  pill.textContent = user.displayName || user.email;
+  pill.style.display = 'flex';
+}
 function updatePlannerPill(){
   const pill = document.getElementById('planner-toggle');
   pill.textContent = isPlanner ? '✏️ Planner mode' : '🔒 View mode';
@@ -478,6 +582,7 @@ async function init(){
   renderDayTabs();
   renderAll();
   startGpsPolling();
+  subscribeTripUpdates(); // keeps this tab in sync when anyone else edits
 }
 
 function renderDayTabs(){
