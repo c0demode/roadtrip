@@ -246,7 +246,7 @@
     box-shadow:0 4px 14px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;
   }
   #chat-panel{
-    position:fixed;inset:0;z-index:950;background:var(--navy);
+    position:fixed;inset:0;z-index:2000;background:var(--navy);
     display:none;flex-direction:column;
   }
   #chat-panel.open{display:flex;}
@@ -262,6 +262,13 @@
   .chat-bubble.user{align-self:flex-end;background:var(--mustard);color:var(--navy);border-bottom-right-radius:3px;}
   .chat-bubble.model{align-self:flex-start;background:var(--navy-2);color:var(--cream);border-bottom-left-radius:3px;}
   .chat-bubble.error{align-self:flex-start;background:#5A2A2A;color:var(--cream);}
+  .chat-bubble.model :is(h1,h2,h3,h4){font-size:14px;font-weight:700;margin:8px 0 4px;color:var(--mustard);}
+  .chat-bubble.model p{margin:0 0 8px;}
+  .chat-bubble.model p:last-child{margin-bottom:0;}
+  .chat-bubble.model ul,.chat-bubble.model ol{margin:0 0 8px;padding-left:18px;}
+  .chat-bubble.model li{margin-bottom:3px;}
+  .chat-bubble.model strong{color:var(--mustard);}
+  .chat-bubble.model hr{display:none;} /* skip horizontal rules — noisy in a small bubble */
   .chat-proposal{
     align-self:flex-start;max-width:90%;background:var(--cream);color:var(--ink);
     border-radius:12px;padding:12px 14px;border:2px solid var(--mustard);
@@ -1022,16 +1029,23 @@ function startGpsPolling(){
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 <script>
 /* ============================================================
    CHAT PANEL — Gemini, with propose_itinerary_change tool
    ============================================================ */
-const CHAT_SYSTEM_PROMPT = `You are a friendly, practical family road trip planning assistant embedded in a web app. The family is traveling with young kids.
+const CHAT_SYSTEM_PROMPT = `You are a friendly, practical family road trip planning assistant embedded in a mobile chat panel. The family is traveling with young kids.
 
 CORE RESPONSIBILITIES:
 - Help brainstorm and compare rest stops, playgrounds, parks, restaurants, and attractions along or near the route.
 - Give practical, concrete suggestions — mention roughly why a place is good for kids when relevant.
 - Talk naturally and conversationally while brainstorming. Don't call any tool just for discussion.
+
+RESPONSE LENGTH — this is a small mobile chat window, not a report:
+- Default to 2-3 suggestions, not 5-6. Only give more if the user asks for more options.
+- Keep each suggestion to 1-2 short lines. Skip sub-headers and horizontal rules — use a short bolded name and a brief reason, nothing fancier.
+- If the user's request spans two days, ask which day first rather than answering for both at once.
 
 WHEN THE USER DECIDES:
 - Only when the user clearly decides to add, move, remove, or change something in the itinerary, call propose_itinerary_change.
@@ -1082,11 +1096,13 @@ let chatOpen = false;
 document.getElementById('chat-fab').onclick = ()=>{
   chatOpen = true;
   document.getElementById('chat-panel').classList.add('open');
+  document.body.style.overflow = 'hidden'; // stop the page underneath from scrolling
   if(chatHistory.length === 0) renderChatBubble('model', "Hi! I can help you find rest stops, playgrounds, food, and things to do along your route. Once you decide on something, I'll put together a card you can confirm before it's added to the trip.");
 };
 document.getElementById('chat-close').onclick = ()=>{
   chatOpen = false;
   document.getElementById('chat-panel').classList.remove('open');
+  document.body.style.overflow = '';
 };
 
 document.getElementById('chat-send').onclick = sendChatMessage;
@@ -1097,7 +1113,12 @@ document.getElementById('chat-input').addEventListener('keydown', e=>{
 function renderChatBubble(role, text){
   const el = document.createElement('div');
   el.className = `chat-bubble ${role}`;
-  el.textContent = text;
+  if(role === 'model'){
+    // Gemini replies in Markdown — render it, sanitized, rather than dumping raw text.
+    el.innerHTML = DOMPurify.sanitize(marked.parse(text));
+  } else {
+    el.textContent = text; // user's own input never needs markdown parsing
+  }
   document.getElementById('chat-messages').appendChild(el);
   scrollChatToBottom();
 }
