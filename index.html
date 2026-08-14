@@ -235,6 +235,52 @@
     border:3px solid var(--navy);box-shadow:0 0 0 5px rgba(227,167,43,0.35), 0 3px 6px rgba(0,0,0,0.4);
     z-index:1000 !important;
   }
+
+  /* ============================================================
+     CHAT PANEL
+     ============================================================ */
+  .chat-fab{
+    position:fixed;bottom:20px;right:20px;z-index:900;
+    width:56px;height:56px;border-radius:50%;background:var(--mustard);
+    color:var(--navy);border:none;font-size:24px;cursor:pointer;
+    box-shadow:0 4px 14px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;
+  }
+  #chat-panel{
+    position:fixed;inset:0;z-index:950;background:var(--navy);
+    display:none;flex-direction:column;
+  }
+  #chat-panel.open{display:flex;}
+  .chat-header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 16px;border-bottom:1px solid rgba(251,244,228,0.15);
+    color:var(--cream);
+  }
+  .chat-header h2{font-size:16px;margin:0;}
+  .chat-close{background:transparent;border:none;color:var(--cream);font-size:22px;cursor:pointer;padding:4px 8px;}
+  .chat-messages{flex:1;overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:10px;}
+  .chat-bubble{max-width:85%;padding:10px 13px;border-radius:14px;font-size:14px;line-height:1.4;}
+  .chat-bubble.user{align-self:flex-end;background:var(--mustard);color:var(--navy);border-bottom-right-radius:3px;}
+  .chat-bubble.model{align-self:flex-start;background:var(--navy-2);color:var(--cream);border-bottom-left-radius:3px;}
+  .chat-bubble.error{align-self:flex-start;background:#5A2A2A;color:var(--cream);}
+  .chat-proposal{
+    align-self:flex-start;max-width:90%;background:var(--cream);color:var(--ink);
+    border-radius:12px;padding:12px 14px;border:2px solid var(--mustard);
+  }
+  .chat-proposal .proposal-summary{font-weight:700;margin-bottom:6px;font-size:14px;}
+  .chat-proposal ul{margin:0 0 10px;padding-left:18px;font-size:13px;color:var(--ink-soft);}
+  .chat-proposal .proposal-actions{display:flex;gap:8px;}
+  .chat-proposal button{flex:1;padding:8px 10px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;}
+  .chat-proposal .confirm-btn{background:var(--sage);color:#fff;}
+  .chat-proposal .discard-btn{background:transparent;border:1px solid var(--paper-muted);color:var(--ink-soft);}
+  .chat-proposal.applied{opacity:0.6;}
+  .chat-proposal .applied-label{font-size:12px;font-weight:700;color:var(--sage-dark);}
+  .chat-input-row{display:flex;gap:8px;padding:12px;border-top:1px solid rgba(251,244,228,0.15);}
+  .chat-input-row input{
+    flex:1;padding:10px 12px;border-radius:10px;border:none;font-size:14px;
+    background:var(--cream);color:var(--ink);
+  }
+  .chat-input-row button{padding:10px 16px;border-radius:10px;border:none;background:var(--mustard);color:var(--navy);font-weight:700;cursor:pointer;}
+  .chat-typing{align-self:flex-start;color:var(--paper-muted);font-size:13px;font-style:italic;padding:0 4px;}
 </style>
 </head>
 <body>
@@ -408,6 +454,7 @@ const GPS_PATH = 'tripdata/gps';
 // Roles (planner/viewer) are looked up per-user from Firestore's
 // roles/{uid} collection — see RTFirebase.getMyRole. No emails or
 // allowlists live in this file, so it's safe to commit publicly.
+const WORKER_URL = 'https://roadtrip-proxy.william-alderman.workers.dev';
 
 const TYPE_ICON = {playground:'🛝', park:'🌳', landmark:'🚂', overlook:'🏞️', hotel:'🏨', nap:'😴'};
 
@@ -960,5 +1007,265 @@ function startGpsPolling(){
   }, 20000);
 }
 </script>
+<!-- Chat: floating button + full panel -->
+<button class="chat-fab" id="chat-fab" title="Trip Assistant">💬</button>
+
+<div id="chat-panel">
+  <div class="chat-header">
+    <h2>🧭 Trip Assistant</h2>
+    <button class="chat-close" id="chat-close">✕</button>
+  </div>
+  <div class="chat-messages" id="chat-messages"></div>
+  <div class="chat-input-row">
+    <input type="text" id="chat-input" placeholder="Ask about stops, food, things to do…" autocomplete="off">
+    <button id="chat-send">Send</button>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   CHAT PANEL — Gemini, with propose_itinerary_change tool
+   ============================================================ */
+const CHAT_SYSTEM_PROMPT = `You are a friendly, practical family road trip planning assistant embedded in a web app. The family is traveling with young kids.
+
+CORE RESPONSIBILITIES:
+- Help brainstorm and compare rest stops, playgrounds, parks, restaurants, and attractions along or near the route.
+- Give practical, concrete suggestions — mention roughly why a place is good for kids when relevant.
+- Talk naturally and conversationally while brainstorming. Don't call any tool just for discussion.
+
+WHEN THE USER DECIDES:
+- Only when the user clearly decides to add, move, remove, or change something in the itinerary, call propose_itinerary_change.
+- Never apply a change yourself — proposing it is the only thing that tool does. The app shows the user a confirm/discard card; you are not committing anything.
+- Bundle multiple decisions from the same message into one call with multiple entries in "changes".
+- Use the current itinerary (provided to you as context) to find correct dayId and stopId values for move/remove/edit actions. Never invent an id.
+- Keep "summary" short and human-readable, e.g. "Add Buc-ee's to Day 1 after Kids Kingdom Playground."`;
+
+const PROPOSE_CHANGE_TOOL = {
+  functionDeclarations: [{
+    name: 'propose_itinerary_change',
+    description: 'Proposes one or more changes to the road trip itinerary based on a decision the user just made. Does not apply anything directly — the app shows the user a confirmation card.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        summary: { type: 'STRING', description: 'Short human-readable summary of the proposed change(s).' },
+        changes: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              action: { type: 'STRING', enum: ['add','move','remove','edit'] },
+              dayId: { type: 'STRING', description: "Which day, e.g. 'day1' or 'day2'." },
+              stopId: { type: 'STRING', description: 'Existing stop id — required for move/remove/edit.' },
+              insertAfterStopId: { type: 'STRING', description: "For add/move — insert after this stop id within the day. Omit to append at the end." },
+              name: { type: 'STRING' },
+              time: { type: 'STRING' },
+              endTime: { type: 'STRING' },
+              address: { type: 'STRING' },
+              lat: { type: 'NUMBER' },
+              lng: { type: 'NUMBER' },
+              type: { type: 'STRING', description: 'Category: playground, park, hotel, landmark, overlook, nap, restaurant, etc.' },
+              notes: { type: 'STRING' },
+              website: { type: 'STRING' }
+            },
+            required: ['action']
+          }
+        }
+      },
+      required: ['changes','summary']
+    }
+  }]
+};
+
+let chatHistory = []; // [{role:'user'|'model', parts:[...]}]
+let chatOpen = false;
+
+document.getElementById('chat-fab').onclick = ()=>{
+  chatOpen = true;
+  document.getElementById('chat-panel').classList.add('open');
+  if(chatHistory.length === 0) renderChatBubble('model', "Hi! I can help you find rest stops, playgrounds, food, and things to do along your route. Once you decide on something, I'll put together a card you can confirm before it's added to the trip.");
+};
+document.getElementById('chat-close').onclick = ()=>{
+  chatOpen = false;
+  document.getElementById('chat-panel').classList.remove('open');
+};
+
+document.getElementById('chat-send').onclick = sendChatMessage;
+document.getElementById('chat-input').addEventListener('keydown', e=>{
+  if(e.key === 'Enter') sendChatMessage();
+});
+
+function renderChatBubble(role, text){
+  const el = document.createElement('div');
+  el.className = `chat-bubble ${role}`;
+  el.textContent = text;
+  document.getElementById('chat-messages').appendChild(el);
+  scrollChatToBottom();
+}
+
+function renderTyping(show){
+  let el = document.getElementById('chat-typing');
+  if(show){
+    if(el) return;
+    el = document.createElement('div');
+    el.id = 'chat-typing';
+    el.className = 'chat-typing';
+    el.textContent = 'Thinking…';
+    document.getElementById('chat-messages').appendChild(el);
+    scrollChatToBottom();
+  } else if(el){
+    el.remove();
+  }
+}
+
+function scrollChatToBottom(){
+  const box = document.getElementById('chat-messages');
+  box.scrollTop = box.scrollHeight;
+}
+
+async function sendChatMessage(){
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if(!text) return;
+  input.value = '';
+
+  renderChatBubble('user', text);
+  chatHistory.push({ role: 'user', parts: [{ text }] });
+
+  renderTyping(true);
+  try{
+    const res = await fetch(`${WORKER_URL}/gemini`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: CHAT_SYSTEM_PROMPT + '\n\nCurrent itinerary (for finding dayId/stopId values):\n' + JSON.stringify(trip) }]
+        },
+        contents: chatHistory,
+        tools: [PROPOSE_CHANGE_TOOL]
+      })
+    });
+    const data = await res.json();
+    renderTyping(false);
+
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+    if(parts.length === 0){
+      renderChatBubble('error', "Didn't get a usable response — try rephrasing?");
+      return;
+    }
+    chatHistory.push({ role: 'model', parts });
+
+    for(const part of parts){
+      if(part.text){
+        renderChatBubble('model', part.text);
+      } else if(part.functionCall && part.functionCall.name === 'propose_itinerary_change'){
+        renderProposalCard(part.functionCall.args);
+      }
+    }
+  } catch(e){
+    renderTyping(false);
+    renderChatBubble('error', "Something went wrong reaching the trip assistant. Try again in a moment.");
+    console.error(e);
+  }
+}
+
+function renderProposalCard(args){
+  const card = document.createElement('div');
+  card.className = 'chat-proposal';
+
+  const list = (args.changes || []).map(c=>{
+    const label = c.action === 'add' ? `Add "${c.name || 'stop'}"` :
+                  c.action === 'remove' ? `Remove stop` :
+                  c.action === 'move' ? `Move stop` : `Edit stop`;
+    return `<li>${escapeHtml(label)}${c.dayId ? ' — ' + escapeHtml(c.dayId) : ''}</li>`;
+  }).join('');
+
+  card.innerHTML = `
+    <div class="proposal-summary">${escapeHtml(args.summary || 'Proposed change')}</div>
+    <ul>${list}</ul>
+    <div class="proposal-actions">
+      <button class="confirm-btn">✓ Confirm</button>
+      <button class="discard-btn">Discard</button>
+    </div>
+  `;
+  document.getElementById('chat-messages').appendChild(card);
+  scrollChatToBottom();
+
+  card.querySelector('.confirm-btn').onclick = async ()=>{
+    if(!isPlanner){
+      renderChatBubble('error', "Only planners can apply changes — you can still browse suggestions here.");
+      return;
+    }
+    await applyProposedChanges(args.changes || []);
+    card.classList.add('applied');
+    card.querySelector('.proposal-actions').innerHTML = '<span class="applied-label">✓ Applied to itinerary</span>';
+  };
+  card.querySelector('.discard-btn').onclick = ()=>{
+    card.remove();
+  };
+}
+
+// Mutates the in-memory trip object per the proposed changes, then saves
+// to Firestore via the existing saveTrip() — same function the manual
+// planner UI already uses, so this stays consistent with everything else.
+async function applyProposedChanges(changes){
+  for(const change of changes){
+    applyOneChatChange(change);
+  }
+  await saveTrip(trip);
+  renderDayTabs();
+  renderAll();
+}
+
+function applyOneChatChange(change){
+  const day = trip.days.find(d => d.id === change.dayId) || trip.days[0];
+  if(!day) return;
+
+  if(change.action === 'add'){
+    const newStop = {
+      id: uid(),
+      time: change.time || '',
+      endTime: change.endTime || '',
+      name: change.name || 'Untitled stop',
+      address: change.address || '',
+      lat: change.lat ?? null,
+      lng: change.lng ?? null,
+      type: change.type || 'landmark',
+      notes: change.notes || '',
+      website: change.website || ''
+    };
+    if(change.insertAfterStopId){
+      const idx = day.stops.findIndex(s => s.id === change.insertAfterStopId);
+      day.stops.splice(idx >= 0 ? idx + 1 : day.stops.length, 0, newStop);
+    } else {
+      day.stops.push(newStop);
+    }
+  } else if(change.action === 'remove'){
+    day.stops = day.stops.filter(s => s.id !== change.stopId);
+  } else if(change.action === 'edit'){
+    const stop = day.stops.find(s => s.id === change.stopId);
+    if(stop){
+      ['name','time','endTime','address','lat','lng','type','notes','website'].forEach(f=>{
+        if(change[f] !== undefined) stop[f] = change[f];
+      });
+    }
+  } else if(change.action === 'move'){
+    // Remove from its current day, then reinsert into the target day.
+    let stop = null;
+    for(const d of trip.days){
+      const idx = d.stops.findIndex(s => s.id === change.stopId);
+      if(idx >= 0){ stop = d.stops.splice(idx, 1)[0]; break; }
+    }
+    if(stop){
+      if(change.insertAfterStopId){
+        const idx = day.stops.findIndex(s => s.id === change.insertAfterStopId);
+        day.stops.splice(idx >= 0 ? idx + 1 : day.stops.length, 0, stop);
+      } else {
+        day.stops.push(stop);
+      }
+    }
+  }
+}
+</script>
+
 </body>
 </html>
