@@ -92,6 +92,7 @@
     color:var(--cream);background:transparent;cursor:pointer;
   }
   .mode-pill.active{background:var(--mustard);color:var(--navy);border-color:var(--mustard);}
+  #user-pill{cursor:default;opacity:0.85;}
 
   /* ---------- Day tabs ---------- */
   .day-tabs{
@@ -202,6 +203,11 @@
     align-items:center;justify-content:center;z-index:400;padding:16px;
   }
   #modal-backdrop.open{display:flex;}
+  #day-modal-backdrop{
+    display:none;position:fixed;inset:0;z-index:1600;
+    background:rgba(0,0,0,0.55);align-items:center;justify-content:center;padding:16px;
+  }
+  #day-modal-backdrop.open{display:flex;}
   .modal{
     background:var(--cream);color:var(--ink);border-radius:var(--radius);
     max-width:440px;width:100%;padding:22px;max-height:90vh;overflow-y:auto;
@@ -234,6 +240,59 @@
     border:3px solid var(--navy);box-shadow:0 0 0 5px rgba(227,167,43,0.35), 0 3px 6px rgba(0,0,0,0.4);
     z-index:1000 !important;
   }
+
+  /* ============================================================
+     CHAT PANEL
+     ============================================================ */
+  .chat-fab{
+    position:fixed;bottom:20px;right:20px;z-index:900;
+    width:56px;height:56px;border-radius:50%;background:var(--mustard);
+    color:var(--navy);border:none;font-size:24px;cursor:pointer;
+    box-shadow:0 4px 14px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;
+  }
+  #chat-panel{
+    position:fixed;inset:0;z-index:2000;background:var(--navy);
+    display:none;flex-direction:column;
+  }
+  #chat-panel.open{display:flex;}
+  .chat-header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 16px;border-bottom:1px solid rgba(251,244,228,0.15);
+    color:var(--cream);
+  }
+  .chat-header h2{font-size:16px;margin:0;}
+  .chat-close{background:transparent;border:none;color:var(--cream);font-size:22px;cursor:pointer;padding:4px 8px;}
+  .chat-messages{flex:1;overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:10px;}
+  .chat-bubble{max-width:85%;padding:10px 13px;border-radius:14px;font-size:14px;line-height:1.4;}
+  .chat-bubble.user{align-self:flex-end;background:var(--mustard);color:var(--navy);border-bottom-right-radius:3px;}
+  .chat-bubble.model{align-self:flex-start;background:var(--navy-2);color:var(--cream);border-bottom-left-radius:3px;}
+  .chat-bubble.error{align-self:flex-start;background:#5A2A2A;color:var(--cream);}
+  .chat-bubble.model :is(h1,h2,h3,h4){font-size:14px;font-weight:700;margin:8px 0 4px;color:var(--mustard);}
+  .chat-bubble.model p{margin:0 0 8px;}
+  .chat-bubble.model p:last-child{margin-bottom:0;}
+  .chat-bubble.model ul,.chat-bubble.model ol{margin:0 0 8px;padding-left:18px;}
+  .chat-bubble.model li{margin-bottom:3px;}
+  .chat-bubble.model strong{color:var(--mustard);}
+  .chat-bubble.model hr{display:none;} /* skip horizontal rules — noisy in a small bubble */
+  .chat-proposal{
+    align-self:flex-start;max-width:90%;background:var(--cream);color:var(--ink);
+    border-radius:12px;padding:12px 14px;border:2px solid var(--mustard);
+  }
+  .chat-proposal .proposal-summary{font-weight:700;margin-bottom:6px;font-size:14px;}
+  .chat-proposal ul{margin:0 0 10px;padding-left:18px;font-size:13px;color:var(--ink-soft);}
+  .chat-proposal .proposal-actions{display:flex;gap:8px;}
+  .chat-proposal button{flex:1;padding:8px 10px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;}
+  .chat-proposal .confirm-btn{background:var(--sage);color:#fff;}
+  .chat-proposal .discard-btn{background:transparent;border:1px solid var(--paper-muted);color:var(--ink-soft);}
+  .chat-proposal.applied{opacity:0.6;}
+  .chat-proposal .applied-label{font-size:12px;font-weight:700;color:var(--sage-dark);}
+  .chat-input-row{display:flex;gap:8px;padding:12px;border-top:1px solid rgba(251,244,228,0.15);}
+  .chat-input-row input{
+    flex:1;padding:10px 12px;border-radius:10px;border:none;font-size:14px;
+    background:var(--cream);color:var(--ink);
+  }
+  .chat-input-row button{padding:10px 16px;border-radius:10px;border:none;background:var(--mustard);color:var(--navy);font-weight:700;cursor:pointer;}
+  .chat-typing{align-self:flex-start;color:var(--paper-muted);font-size:13px;font-style:italic;padding:0 4px;}
 </style>
 </head>
 <body>
@@ -242,11 +301,9 @@
   <div class="gate-card">
     <div class="route-mark">🚗</div>
     <h1 class="display">Family Road Trip</h1>
-    <p>Enter the trip passcode to view the itinerary.</p>
-    <input type="password" id="passcode-input" placeholder="Passcode" autocomplete="off">
-    <button class="btn btn-primary" id="passcode-submit">Enter</button>
+    <p>Sign in with your family Google account to view the itinerary.</p>
+    <button class="btn btn-primary" id="google-signin-btn">Sign in with Google</button>
     <div class="gate-error" id="gate-error"></div>
-    <div class="gate-hint">Demo passcodes — view: <b>roadtrip</b> · planner: <b>planner123</b></div>
   </div>
 </div>
 
@@ -259,11 +316,14 @@
     </div>
   </div>
   <div class="header-actions">
+    <span class="mode-pill" id="user-pill" style="display:none;"></span>
     <button class="mode-pill" id="planner-toggle">🔒 View mode</button>
+    <button class="mode-pill" id="signout-btn">Sign out</button>
   </div>
 </header>
 
 <div class="day-tabs" id="day-tabs"></div>
+<button class="add-stop-btn planner-only" id="add-day-btn" style="margin:0 16px 12px;">+ Add a day</button>
 
 <div class="layout">
   <div class="map-col">
@@ -321,15 +381,114 @@
   </div>
 </div>
 
+<div id="day-modal-backdrop">
+  <div class="modal">
+    <h2>Add a day</h2>
+    <form id="day-form">
+      <div class="field"><label>Label</label><input type="text" id="d-label" placeholder="Day 3" required></div>
+      <div class="field"><label>Title</label><input type="text" id="d-title" placeholder="Gatlinburg to Asheville" required></div>
+      <div class="field"><label>Date (optional)</label><input type="text" id="d-date" placeholder="Sat, Aug 22"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="day-modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add day</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+
+<!-- ============================================================
+     FIREBASE (Google Sign-In + Firestore)
+     type="module" scripts run deferred — AFTER the classic script
+     below has already executed once. window.RTFirebase therefore
+     isn't ready until the 'rtfirebase-ready' event fires; see the
+     startAuthListener() guard in the classic script below.
+     ============================================================ -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import {
+    getFirestore, doc, getDoc, setDoc, onSnapshot
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyACr4J3jK2_ecsxtUfMh9t3rCnX_zWv8Ck",
+    authDomain: "trip-planner-ad952.firebaseapp.com",
+    projectId: "trip-planner-ad952",
+    storageBucket: "trip-planner-ad952.firebasestorage.app",
+    messagingSenderId: "892454695472",
+    appId: "1:892454695472:web:778991d873628c5be533f5"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+  const provider = new GoogleAuthProvider();
+
+  // path is a "collection/docId" string, e.g. "tripdata/trip"
+  function refFor(path) {
+    const [col, id] = path.split('/');
+    return doc(db, col, id);
+  }
+
+  window.RTFirebase = {
+    signIn: () => signInWithPopup(auth, provider),
+    signOutUser: () => signOut(auth),
+    onAuthStateChanged: (cb) => onAuthStateChanged(auth, cb),
+
+    async loadDoc(path) {
+      const snap = await getDoc(refFor(path));
+      return snap.exists() ? snap.data().value : null;
+    },
+    async saveDoc(path, value) {
+      await setDoc(refFor(path), { value, updatedAt: Date.now() });
+    },
+    // Fresh ID token for authenticating calls to the roadtrip-proxy Worker.
+    async getIdToken() {
+      const user = auth.currentUser;
+      if (!user) return null;
+      return await user.getIdToken();
+    },
+    // Reads roles/{uid} — returns 'planner', 'viewer', or null if no
+    // role has been granted yet (nothing PII-bearing in this call).
+    async getMyRole(uid) {
+      const snap = await getDoc(doc(db, 'roles', uid));
+      return snap.exists() ? snap.data().role : null;
+    },
+    // live subscription — used for the trip doc so every open tab/device
+    // updates automatically when the planner makes a change
+    subscribeDoc(path, cb) {
+      return onSnapshot(refFor(path), (snap) => {
+        cb(snap.exists() ? snap.data().value : null);
+      });
+    }
+  };
+
+  // Module scripts run deferred (after the classic script below has
+  // already executed), so anything that needs RTFirebase at top level
+  // has to wait for this event rather than assuming it's ready.
+  window.dispatchEvent(new Event('rtfirebase-ready'));
+</script>
+
 <script>
 /* ============================================================
    DATA
    ============================================================ */
-const TRIP_KEY = 'trip-itinerary-v1';
-const CURRENT_KEY = 'trip-current-stop-v1';
-const GPS_KEY = 'trip-car-gps-v1';
+// NOTE: trip data now lives in Firestore (see RTFirebase above),
+// not window.storage — window.storage only works inside Claude's
+// artifact preview, not on the deployed site.
+const TRIP_PATH = 'tripdata/trip';
+const CURRENT_PATH = 'tripdata/currentStops';
+const GPS_PATH = 'tripdata/gps';
+
+// Roles (planner/viewer) are looked up per-user from Firestore's
+// roles/{uid} collection — see RTFirebase.getMyRole. No emails or
+// allowlists live in this file, so it's safe to commit publicly.
+const WORKER_URL = 'https://roadtrip-proxy.william-alderman.workers.dev';
 
 const TYPE_ICON = {playground:'🛝', park:'🌳', landmark:'🚂', overlook:'🏞️', hotel:'🏨', nap:'😴'};
 
@@ -378,90 +537,132 @@ let editingStopId = null;
 let selectedStopId = null;
 
 /* ============================================================
-   STORAGE
+   STORAGE (Firestore)
    ============================================================ */
+let tripUnsubscribe = null;
+
 async function loadTrip(){
   try{
-    const res = await window.storage.get(TRIP_KEY, true);
-    if(res && res.value) return JSON.parse(res.value);
-  }catch(e){ /* not found yet */ }
+    const value = await window.RTFirebase.loadDoc(TRIP_PATH);
+    if(value) return value;
+  }catch(e){ console.error('load trip failed', e); }
   const seeded = seedTrip();
   await saveTrip(seeded);
   return seeded;
 }
 async function saveTrip(t){
   trip = t;
-  try{ await window.storage.set(TRIP_KEY, JSON.stringify(t), true); }
+  try{ await window.RTFirebase.saveDoc(TRIP_PATH, t); }
   catch(e){ console.error('save trip failed', e); }
+}
+// Keeps every open tab/device in sync live when the planner edits the trip.
+function subscribeTripUpdates(){
+  if(tripUnsubscribe) tripUnsubscribe();
+  tripUnsubscribe = window.RTFirebase.subscribeDoc(TRIP_PATH, (value)=>{
+    if(!value) return;
+    trip = value;
+    renderDayTabs(); renderAll();
+  });
 }
 async function loadCurrentStops(){
   try{
-    const res = await window.storage.get(CURRENT_KEY, true);
-    if(res && res.value) return JSON.parse(res.value);
-  }catch(e){}
+    const value = await window.RTFirebase.loadDoc(CURRENT_PATH);
+    if(value) return value;
+  }catch(e){ console.error(e); }
   return {};
 }
 async function saveCurrentStops(){
-  try{ await window.storage.set(CURRENT_KEY, JSON.stringify(currentStopMap), true); }
+  try{ await window.RTFirebase.saveDoc(CURRENT_PATH, currentStopMap); }
   catch(e){ console.error(e); }
 }
 async function saveGps(lat,lng,accuracy){
-  try{ await window.storage.set(GPS_KEY, JSON.stringify({lat,lng,accuracy,t:Date.now()}), true); }
+  try{ await window.RTFirebase.saveDoc(GPS_PATH, {lat,lng,accuracy,t:Date.now()}); }
   catch(e){ console.error(e); }
 }
 async function loadGps(){
-  try{
-    const res = await window.storage.get(GPS_KEY, true);
-    if(res && res.value) return JSON.parse(res.value);
-  }catch(e){}
-  return null;
+  try{ return await window.RTFirebase.loadDoc(GPS_PATH); }
+  catch(e){ return null; }
 }
 
 /* ============================================================
-   GATE
+   GATE (Google Sign-In)
    ============================================================ */
-const VIEW_PASS = 'roadtrip';
-const PLANNER_PASS = 'planner123';
-
-document.getElementById('passcode-submit').onclick = tryPasscode;
-document.getElementById('passcode-input').addEventListener('keydown', e=>{ if(e.key==='Enter') tryPasscode(); });
-
-function tryPasscode(){
-  const val = document.getElementById('passcode-input').value.trim();
+document.getElementById('google-signin-btn').onclick = async ()=>{
   const err = document.getElementById('gate-error');
-  if(val === PLANNER_PASS){
-    isPlanner = true;
-    document.getElementById('gate').style.display='none';
-    document.body.classList.add('planner-mode');
-    updatePlannerPill();
-    init();
-  } else if(val === VIEW_PASS){
-    isPlanner = false;
-    document.getElementById('gate').style.display='none';
-    init();
-  } else {
-    err.textContent = "That passcode didn't match. Try again.";
-  }
-}
-
-document.getElementById('planner-toggle').onclick = ()=>{
-  if(isPlanner){
-    isPlanner = false;
-    document.body.classList.remove('planner-mode');
-    updatePlannerPill();
-    renderCards();
-  } else {
-    const p = prompt('Enter planner passcode to unlock editing:');
-    if(p === PLANNER_PASS){
-      isPlanner = true;
-      document.body.classList.add('planner-mode');
-      updatePlannerPill();
-      renderCards();
-    } else if(p !== null){
-      alert('Incorrect planner passcode.');
-    }
+  err.textContent = '';
+  try{
+    await window.RTFirebase.signIn();
+    // init() runs from the onAuthStateChanged listener below once
+    // Firebase confirms the sign-in — no need to call it here.
+  }catch(e){
+    err.textContent = "Sign-in didn't go through — try again.";
+    console.error(e);
   }
 };
+
+document.getElementById('signout-btn').onclick = ()=>{
+  window.RTFirebase.signOutUser();
+};
+
+function startAuthListener(){
+  window.RTFirebase.onAuthStateChanged(async (user)=>{
+    if(user){
+      const role = await window.RTFirebase.getMyRole(user.uid);
+      if(!role){
+        showPendingAccess(user);
+        return;
+      }
+      isPlanner = (role === 'planner');
+      document.getElementById('gate').style.display = 'none';
+      document.body.classList.toggle('planner-mode', isPlanner);
+      updatePlannerPill();
+      updateUserPill(user);
+      await init();
+    } else {
+      document.getElementById('gate').style.display = 'flex';
+      document.getElementById('user-pill').style.display = 'none';
+    }
+  });
+}
+// window.RTFirebase is set up by the module script above, which runs
+// deferred (after this point in the document). Wait for its ready
+// signal instead of calling it immediately.
+if(window.RTFirebase){
+  startAuthListener(); // module already ran, e.g. on a fast reload
+} else {
+  window.addEventListener('rtfirebase-ready', startAuthListener, { once: true });
+}
+
+function showPendingAccess(user){
+  const card = document.querySelector('.gate-card');
+  card.innerHTML = `
+    <div class="route-mark">🕒</div>
+    <h1 class="display">Almost there</h1>
+    <p>Signed in as ${escapeHtml(user.email)}, but you don't have access to this trip yet.
+    Ask the trip organizer to add you.</p>
+    <button class="btn btn-ghost" id="signout-pending-btn">Sign out</button>
+  `;
+  document.getElementById('gate').style.display = 'flex';
+  document.getElementById('signout-pending-btn').onclick = ()=> window.RTFirebase.signOutUser();
+}
+
+// A planner can still preview the app as a viewer; this never grants
+// access, it only toggles the view within an already-granted role.
+document.getElementById('planner-toggle').onclick = ()=>{
+  if(!myRole || myRole !== 'planner') return;
+  isPlanner = !isPlanner;
+  document.body.classList.toggle('planner-mode', isPlanner);
+  updatePlannerPill();
+  renderCards();
+};
+
+let myRole = null;
+function updateUserPill(user){
+  myRole = isPlanner ? 'planner' : 'viewer';
+  const pill = document.getElementById('user-pill');
+  pill.textContent = user.displayName || user.email;
+  pill.style.display = 'flex';
+}
 function updatePlannerPill(){
   const pill = document.getElementById('planner-toggle');
   pill.textContent = isPlanner ? '✏️ Planner mode' : '🔒 View mode';
@@ -478,6 +679,7 @@ async function init(){
   renderDayTabs();
   renderAll();
   startGpsPolling();
+  subscribeTripUpdates(); // keeps this tab in sync when anyone else edits
 }
 
 function renderDayTabs(){
@@ -801,6 +1003,36 @@ document.getElementById('stop-form').onsubmit = async (e)=>{
 };
 
 /* ============================================================
+   ADD DAY
+   ============================================================ */
+const dayBackdrop = document.getElementById('day-modal-backdrop');
+document.getElementById('add-day-btn').onclick = ()=>{
+  document.getElementById('d-label').value = `Day ${trip.days.length + 1}`;
+  document.getElementById('d-title').value = '';
+  document.getElementById('d-date').value = '';
+  dayBackdrop.classList.add('open');
+};
+document.getElementById('day-modal-cancel').onclick = ()=> dayBackdrop.classList.remove('open');
+dayBackdrop.onclick = (e)=>{ if(e.target===dayBackdrop) dayBackdrop.classList.remove('open'); };
+
+document.getElementById('day-form').onsubmit = async (e)=>{
+  e.preventDefault();
+  const newDay = {
+    id: `day${trip.days.length + 1}`,
+    label: document.getElementById('d-label').value.trim(),
+    title: document.getElementById('d-title').value.trim(),
+    date: document.getElementById('d-date').value.trim(),
+    stops: []
+  };
+  trip.days.push(newDay);
+  await saveTrip(trip);
+  activeDay = newDay.id;
+  dayBackdrop.classList.remove('open');
+  renderDayTabs();
+  renderAll();
+};
+
+/* ============================================================
    GPS SHARING
    ============================================================ */
 const gpsBtn = document.getElementById('gps-toggle');
@@ -839,5 +1071,316 @@ function startGpsPolling(){
   }, 20000);
 }
 </script>
+<!-- Chat: floating button + full panel -->
+<button class="chat-fab" id="chat-fab" title="Trip Assistant">💬</button>
+
+<div id="chat-panel">
+  <div class="chat-header">
+    <h2>🧭 Trip Assistant</h2>
+    <button class="chat-close" id="chat-close">✕</button>
+  </div>
+  <div class="chat-messages" id="chat-messages"></div>
+  <div class="chat-input-row">
+    <input type="text" id="chat-input" placeholder="Ask about stops, food, things to do…" autocomplete="off">
+    <button id="chat-send">Send</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/16.3.0/lib/marked.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.4.11/purify.min.js"></script>
+<script>
+/* ============================================================
+   CHAT PANEL — Gemini, with propose_itinerary_change tool
+   ============================================================ */
+const CHAT_SYSTEM_PROMPT = `You are a friendly, practical family road trip planning assistant embedded in a mobile chat panel. The family is traveling with young kids.
+
+CORE RESPONSIBILITIES:
+- Help brainstorm and compare rest stops, playgrounds, parks, restaurants, and attractions along or near the route.
+- Give practical, concrete suggestions — mention roughly why a place is good for kids when relevant.
+- Talk naturally and conversationally while brainstorming. Don't call any tool just for discussion.
+
+RESPONSE LENGTH — this is a small mobile chat window, not a report:
+- Default to 2-3 suggestions, not 5-6. Only give more if the user asks for more options.
+- Keep each suggestion to 1-2 short lines. Skip sub-headers and horizontal rules — use a short bolded name and a brief reason, nothing fancier.
+- If the user's request spans two days, ask which day first rather than answering for both at once.
+
+WHEN THE USER DECIDES:
+- Only when the user clearly decides to add, move, remove, or change something in the itinerary, call propose_itinerary_change.
+- Never apply a change yourself — proposing it is the only thing that tool does. The app shows the user a confirm/discard card; you are not committing anything.
+- Bundle multiple decisions from the same message into one call with multiple entries in "changes".
+- Use the current itinerary (provided to you as context) to find correct dayId and stopId values for move/remove/edit actions. Never invent an id.
+- Keep "summary" short and human-readable, e.g. "Add Buc-ee's to Day 1 after Kids Kingdom Playground."
+
+ADDING A WHOLE NEW DAY:
+- If the user asks to add a new day (e.g. "add a day for Asheville" or "add a day with X, Y, Z"), use action "add_day" with a label (e.g. "Day 3"), a title, and optionally a date.
+- To add stops to that same new day in the same response, give the add_day entry a "tempId" (any short string you make up, e.g. "newday"), and use that same string as the dayId on any "add" entries for stops that belong to it — the app resolves tempId to the real day id when it applies the changes. Only use tempId for a day you are creating in this same call — for existing days, always use their real dayId from the itinerary context.`;
+
+const PROPOSE_CHANGE_TOOL = {
+  functionDeclarations: [{
+    name: 'propose_itinerary_change',
+    description: 'Proposes one or more changes to the road trip itinerary based on a decision the user just made. Does not apply anything directly — the app shows the user a confirmation card.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        summary: { type: 'STRING', description: 'Short human-readable summary of the proposed change(s).' },
+        changes: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              action: { type: 'STRING', enum: ['add','move','remove','edit','add_day'] },
+              dayId: { type: 'STRING', description: "Which day, e.g. 'day1' or 'day2'. For a stop being added to a brand-new day in this same call, use that day's tempId instead." },
+              tempId: { type: 'STRING', description: "Only for action 'add_day' — a made-up short id other entries in this same call can reference as dayId to add stops to the new day." },
+              label: { type: 'STRING', description: "Only for action 'add_day', e.g. 'Day 3'." },
+              title: { type: 'STRING', description: "Only for action 'add_day', e.g. 'Gatlinburg to Asheville'." },
+              date: { type: 'STRING', description: "Only for action 'add_day', optional." },
+              stopId: { type: 'STRING', description: 'Existing stop id — required for move/remove/edit.' },
+              insertAfterStopId: { type: 'STRING', description: "For add/move — insert after this stop id within the day. Omit to append at the end." },
+              name: { type: 'STRING' },
+              time: { type: 'STRING' },
+              endTime: { type: 'STRING' },
+              address: { type: 'STRING' },
+              lat: { type: 'NUMBER' },
+              lng: { type: 'NUMBER' },
+              type: { type: 'STRING', description: 'Category: playground, park, hotel, landmark, overlook, nap, restaurant, etc.' },
+              notes: { type: 'STRING' },
+              website: { type: 'STRING' }
+            },
+            required: ['action']
+          }
+        }
+      },
+      required: ['changes','summary']
+    }
+  }]
+};
+
+let chatHistory = []; // [{role:'user'|'model', parts:[...]}]
+let chatOpen = false;
+
+document.getElementById('chat-fab').onclick = ()=>{
+  chatOpen = true;
+  document.getElementById('chat-panel').classList.add('open');
+  document.body.style.overflow = 'hidden'; // stop the page underneath from scrolling
+  if(chatHistory.length === 0) renderChatBubble('model', "Hi! I can help you find rest stops, playgrounds, food, and things to do along your route. Once you decide on something, I'll put together a card you can confirm before it's added to the trip.");
+};
+document.getElementById('chat-close').onclick = ()=>{
+  chatOpen = false;
+  document.getElementById('chat-panel').classList.remove('open');
+  document.body.style.overflow = '';
+};
+
+document.getElementById('chat-send').onclick = sendChatMessage;
+document.getElementById('chat-input').addEventListener('keydown', e=>{
+  if(e.key === 'Enter') sendChatMessage();
+});
+
+function renderChatBubble(role, text){
+  const el = document.createElement('div');
+  el.className = `chat-bubble ${role}`;
+  if(role === 'model'){
+    // Gemini replies in Markdown — render it, sanitized, rather than dumping raw text.
+    el.innerHTML = DOMPurify.sanitize(marked.parse(text));
+  } else {
+    el.textContent = text; // user's own input never needs markdown parsing
+  }
+  document.getElementById('chat-messages').appendChild(el);
+  scrollChatToBottom();
+}
+
+function renderTyping(show){
+  let el = document.getElementById('chat-typing');
+  if(show){
+    if(el) return;
+    el = document.createElement('div');
+    el.id = 'chat-typing';
+    el.className = 'chat-typing';
+    el.textContent = 'Thinking…';
+    document.getElementById('chat-messages').appendChild(el);
+    scrollChatToBottom();
+  } else if(el){
+    el.remove();
+  }
+}
+
+function scrollChatToBottom(){
+  const box = document.getElementById('chat-messages');
+  box.scrollTop = box.scrollHeight;
+}
+
+async function sendChatMessage(){
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if(!text) return;
+  input.value = '';
+
+  renderChatBubble('user', text);
+  chatHistory.push({ role: 'user', parts: [{ text }] });
+
+  renderTyping(true);
+  try{
+    const idToken = await window.RTFirebase.getIdToken();
+    if(!idToken){
+      renderTyping(false);
+      renderChatBubble('error', "You'll need to be signed in to chat with the trip assistant.");
+      return;
+    }
+    const res = await fetch(`${WORKER_URL}/gemini`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'authorization': `Bearer ${idToken}`
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: CHAT_SYSTEM_PROMPT + '\n\nCurrent itinerary (for finding dayId/stopId values):\n' + JSON.stringify(trip) }]
+        },
+        contents: chatHistory,
+        tools: [PROPOSE_CHANGE_TOOL]
+      })
+    });
+    const data = await res.json();
+    renderTyping(false);
+
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+    if(parts.length === 0){
+      renderChatBubble('error', "Didn't get a usable response — try rephrasing?");
+      return;
+    }
+    chatHistory.push({ role: 'model', parts });
+
+    for(const part of parts){
+      if(part.text){
+        renderChatBubble('model', part.text);
+      } else if(part.functionCall && part.functionCall.name === 'propose_itinerary_change'){
+        renderProposalCard(part.functionCall.args);
+      }
+    }
+  } catch(e){
+    renderTyping(false);
+    renderChatBubble('error', "Something went wrong reaching the trip assistant. Try again in a moment.");
+    console.error(e);
+  }
+}
+
+function renderProposalCard(args){
+  const card = document.createElement('div');
+  card.className = 'chat-proposal';
+
+  const list = (args.changes || []).map(c=>{
+    const label = c.action === 'add_day' ? `Add new day: ${c.label || ''} — ${c.title || ''}` :
+                  c.action === 'add' ? `Add "${c.name || 'stop'}"` :
+                  c.action === 'remove' ? `Remove stop` :
+                  c.action === 'move' ? `Move stop` : `Edit stop`;
+    return `<li>${escapeHtml(label)}${(c.dayId && c.action !== 'add_day') ? ' — ' + escapeHtml(c.dayId) : ''}</li>`;
+  }).join('');
+
+  card.innerHTML = `
+    <div class="proposal-summary">${escapeHtml(args.summary || 'Proposed change')}</div>
+    <ul>${list}</ul>
+    <div class="proposal-actions">
+      <button class="confirm-btn">✓ Confirm</button>
+      <button class="discard-btn">Discard</button>
+    </div>
+  `;
+  document.getElementById('chat-messages').appendChild(card);
+  scrollChatToBottom();
+
+  card.querySelector('.confirm-btn').onclick = async ()=>{
+    if(!isPlanner){
+      renderChatBubble('error', "Only planners can apply changes — you can still browse suggestions here.");
+      return;
+    }
+    await applyProposedChanges(args.changes || []);
+    card.classList.add('applied');
+    card.querySelector('.proposal-actions').innerHTML = '<span class="applied-label">✓ Applied to itinerary</span>';
+  };
+  card.querySelector('.discard-btn').onclick = ()=>{
+    card.remove();
+  };
+}
+
+// Mutates the in-memory trip object per the proposed changes, then saves
+// to Firestore via the existing saveTrip() — same function the manual
+// planner UI already uses, so this stays consistent with everything else.
+async function applyProposedChanges(changes){
+  const tempIdMap = {}; // maps a proposal's tempId -> the real day id we generate
+  for(const change of changes){
+    applyOneChatChange(change, tempIdMap);
+  }
+  await saveTrip(trip);
+  renderDayTabs();
+  renderAll();
+}
+
+function resolveDayId(dayId, tempIdMap){
+  return tempIdMap[dayId] || dayId;
+}
+
+function applyOneChatChange(change, tempIdMap){
+  if(change.action === 'add_day'){
+    const newDay = {
+      id: `day${trip.days.length + 1}`,
+      label: change.label || `Day ${trip.days.length + 1}`,
+      title: change.title || '',
+      date: change.date || '',
+      stops: []
+    };
+    trip.days.push(newDay);
+    if(change.tempId) tempIdMap[change.tempId] = newDay.id;
+    return;
+  }
+
+  const resolvedDayId = resolveDayId(change.dayId, tempIdMap);
+  const day = trip.days.find(d => d.id === resolvedDayId) || trip.days[0];
+  if(!day) return;
+
+  if(change.action === 'add'){
+    const newStop = {
+      id: uid(),
+      time: change.time || '',
+      endTime: change.endTime || '',
+      name: change.name || 'Untitled stop',
+      address: change.address || '',
+      lat: change.lat ?? null,
+      lng: change.lng ?? null,
+      type: change.type || 'landmark',
+      notes: change.notes || '',
+      website: change.website || ''
+    };
+    if(change.insertAfterStopId){
+      const idx = day.stops.findIndex(s => s.id === change.insertAfterStopId);
+      day.stops.splice(idx >= 0 ? idx + 1 : day.stops.length, 0, newStop);
+    } else {
+      day.stops.push(newStop);
+    }
+  } else if(change.action === 'remove'){
+    day.stops = day.stops.filter(s => s.id !== change.stopId);
+  } else if(change.action === 'edit'){
+    const stop = day.stops.find(s => s.id === change.stopId);
+    if(stop){
+      ['name','time','endTime','address','lat','lng','type','notes','website'].forEach(f=>{
+        if(change[f] !== undefined) stop[f] = change[f];
+      });
+    }
+  } else if(change.action === 'move'){
+    // Remove from its current day, then reinsert into the target day.
+    let stop = null;
+    for(const d of trip.days){
+      const idx = d.stops.findIndex(s => s.id === change.stopId);
+      if(idx >= 0){ stop = d.stops.splice(idx, 1)[0]; break; }
+    }
+    if(stop){
+      if(change.insertAfterStopId){
+        const idx = day.stops.findIndex(s => s.id === change.insertAfterStopId);
+        day.stops.splice(idx >= 0 ? idx + 1 : day.stops.length, 0, stop);
+      } else {
+        day.stops.push(stop);
+      }
+    }
+  }
+}
+</script>
+
 </body>
 </html>
