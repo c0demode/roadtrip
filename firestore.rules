@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function hasAccess() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/roles/$(request.auth.uid));
+    }
+    function isPlanner() {
+      return hasAccess() &&
+        get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == 'planner';
+    }
+
+    // GPS is a special case: any signed-in family member should be able to
+    // share their live location, not just planners — whoever's driving
+    // isn't necessarily the one with edit access to the itinerary.
+    match /tripdata/gps {
+      allow read: if hasAccess();
+      allow write: if hasAccess();
+    }
+
+    // Trip itinerary and current-stop state — planner-only writes.
+    match /tripdata/{docId} {
+      allow read: if hasAccess();
+      allow write: if isPlanner();
+    }
+
+    // Each doc's id IS the user's Firebase Auth uid — no email or PII
+    // stored here. Roles are granted manually via the Firebase console
+    // (Firestore Database → roles collection → Add document), never
+    // through app code, so nothing sensitive ends up in this repo.
+    match /roles/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false; // console-only, on purpose
+    }
+  }
+}

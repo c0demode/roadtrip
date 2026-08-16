@@ -203,6 +203,11 @@
     align-items:center;justify-content:center;z-index:400;padding:16px;
   }
   #modal-backdrop.open{display:flex;}
+  #day-modal-backdrop{
+    display:none;position:fixed;inset:0;z-index:1600;
+    background:rgba(0,0,0,0.55);align-items:center;justify-content:center;padding:16px;
+  }
+  #day-modal-backdrop.open{display:flex;}
   .modal{
     background:var(--cream);color:var(--ink);border-radius:var(--radius);
     max-width:440px;width:100%;padding:22px;max-height:90vh;overflow-y:auto;
@@ -318,6 +323,7 @@
 </header>
 
 <div class="day-tabs" id="day-tabs"></div>
+<button class="add-stop-btn planner-only" id="add-day-btn" style="margin:0 16px 12px;">+ Add a day</button>
 
 <div class="layout">
   <div class="map-col">
@@ -375,6 +381,21 @@
   </div>
 </div>
 
+<div id="day-modal-backdrop">
+  <div class="modal">
+    <h2>Add a day</h2>
+    <form id="day-form">
+      <div class="field"><label>Label</label><input type="text" id="d-label" placeholder="Day 3" required></div>
+      <div class="field"><label>Title</label><input type="text" id="d-title" placeholder="Gatlinburg to Asheville" required></div>
+      <div class="field"><label>Date (optional)</label><input type="text" id="d-date" placeholder="Sat, Aug 22"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="day-modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add day</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
 
@@ -425,6 +446,12 @@
     },
     async saveDoc(path, value) {
       await setDoc(refFor(path), { value, updatedAt: Date.now() });
+    },
+    // Fresh ID token for authenticating calls to the roadtrip-proxy Worker.
+    async getIdToken() {
+      const user = auth.currentUser;
+      if (!user) return null;
+      return await user.getIdToken();
     },
     // Reads roles/{uid} — returns 'planner', 'viewer', or null if no
     // role has been granted yet (nothing PII-bearing in this call).
@@ -976,6 +1003,36 @@ document.getElementById('stop-form').onsubmit = async (e)=>{
 };
 
 /* ============================================================
+   ADD DAY
+   ============================================================ */
+const dayBackdrop = document.getElementById('day-modal-backdrop');
+document.getElementById('add-day-btn').onclick = ()=>{
+  document.getElementById('d-label').value = `Day ${trip.days.length + 1}`;
+  document.getElementById('d-title').value = '';
+  document.getElementById('d-date').value = '';
+  dayBackdrop.classList.add('open');
+};
+document.getElementById('day-modal-cancel').onclick = ()=> dayBackdrop.classList.remove('open');
+dayBackdrop.onclick = (e)=>{ if(e.target===dayBackdrop) dayBackdrop.classList.remove('open'); };
+
+document.getElementById('day-form').onsubmit = async (e)=>{
+  e.preventDefault();
+  const newDay = {
+    id: `day${trip.days.length + 1}`,
+    label: document.getElementById('d-label').value.trim(),
+    title: document.getElementById('d-title').value.trim(),
+    date: document.getElementById('d-date').value.trim(),
+    stops: []
+  };
+  trip.days.push(newDay);
+  await saveTrip(trip);
+  activeDay = newDay.id;
+  dayBackdrop.classList.remove('open');
+  renderDayTabs();
+  renderAll();
+};
+
+/* ============================================================
    GPS SHARING
    ============================================================ */
 const gpsBtn = document.getElementById('gps-toggle');
@@ -1052,7 +1109,11 @@ WHEN THE USER DECIDES:
 - Never apply a change yourself — proposing it is the only thing that tool does. The app shows the user a confirm/discard card; you are not committing anything.
 - Bundle multiple decisions from the same message into one call with multiple entries in "changes".
 - Use the current itinerary (provided to you as context) to find correct dayId and stopId values for move/remove/edit actions. Never invent an id.
-- Keep "summary" short and human-readable, e.g. "Add Buc-ee's to Day 1 after Kids Kingdom Playground."`;
+- Keep "summary" short and human-readable, e.g. "Add Buc-ee's to Day 1 after Kids Kingdom Playground."
+
+ADDING A WHOLE NEW DAY:
+- If the user asks to add a new day (e.g. "add a day for Asheville" or "add a day with X, Y, Z"), use action "add_day" with a label (e.g. "Day 3"), a title, and optionally a date.
+- To add stops to that same new day in the same response, give the add_day entry a "tempId" (any short string you make up, e.g. "newday"), and use that same string as the dayId on any "add" entries for stops that belong to it — the app resolves tempId to the real day id when it applies the changes. Only use tempId for a day you are creating in this same call — for existing days, always use their real dayId from the itinerary context.`;
 
 const PROPOSE_CHANGE_TOOL = {
   functionDeclarations: [{
@@ -1067,8 +1128,12 @@ const PROPOSE_CHANGE_TOOL = {
           items: {
             type: 'OBJECT',
             properties: {
-              action: { type: 'STRING', enum: ['add','move','remove','edit'] },
-              dayId: { type: 'STRING', description: "Which day, e.g. 'day1' or 'day2'." },
+              action: { type: 'STRING', enum: ['add','move','remove','edit','add_day'] },
+              dayId: { type: 'STRING', description: "Which day, e.g. 'day1' or 'day2'. For a stop being added to a brand-new day in this same call, use that day's tempId instead." },
+              tempId: { type: 'STRING', description: "Only for action 'add_day' — a made-up short id other entries in this same call can reference as dayId to add stops to the new day." },
+              label: { type: 'STRING', description: "Only for action 'add_day', e.g. 'Day 3'." },
+              title: { type: 'STRING', description: "Only for action 'add_day', e.g. 'Gatlinburg to Asheville'." },
+              date: { type: 'STRING', description: "Only for action 'add_day', optional." },
               stopId: { type: 'STRING', description: 'Existing stop id — required for move/remove/edit.' },
               insertAfterStopId: { type: 'STRING', description: "For add/move — insert after this stop id within the day. Omit to append at the end." },
               name: { type: 'STRING' },
@@ -1154,9 +1219,18 @@ async function sendChatMessage(){
 
   renderTyping(true);
   try{
+    const idToken = await window.RTFirebase.getIdToken();
+    if(!idToken){
+      renderTyping(false);
+      renderChatBubble('error', "You'll need to be signed in to chat with the trip assistant.");
+      return;
+    }
     const res = await fetch(`${WORKER_URL}/gemini`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        'authorization': `Bearer ${idToken}`
+      },
       body: JSON.stringify({
         systemInstruction: {
           parts: [{ text: CHAT_SYSTEM_PROMPT + '\n\nCurrent itinerary (for finding dayId/stopId values):\n' + JSON.stringify(trip) }]
@@ -1194,10 +1268,11 @@ function renderProposalCard(args){
   card.className = 'chat-proposal';
 
   const list = (args.changes || []).map(c=>{
-    const label = c.action === 'add' ? `Add "${c.name || 'stop'}"` :
+    const label = c.action === 'add_day' ? `Add new day: ${c.label || ''} — ${c.title || ''}` :
+                  c.action === 'add' ? `Add "${c.name || 'stop'}"` :
                   c.action === 'remove' ? `Remove stop` :
                   c.action === 'move' ? `Move stop` : `Edit stop`;
-    return `<li>${escapeHtml(label)}${c.dayId ? ' — ' + escapeHtml(c.dayId) : ''}</li>`;
+    return `<li>${escapeHtml(label)}${(c.dayId && c.action !== 'add_day') ? ' — ' + escapeHtml(c.dayId) : ''}</li>`;
   }).join('');
 
   card.innerHTML = `
@@ -1229,16 +1304,35 @@ function renderProposalCard(args){
 // to Firestore via the existing saveTrip() — same function the manual
 // planner UI already uses, so this stays consistent with everything else.
 async function applyProposedChanges(changes){
+  const tempIdMap = {}; // maps a proposal's tempId -> the real day id we generate
   for(const change of changes){
-    applyOneChatChange(change);
+    applyOneChatChange(change, tempIdMap);
   }
   await saveTrip(trip);
   renderDayTabs();
   renderAll();
 }
 
-function applyOneChatChange(change){
-  const day = trip.days.find(d => d.id === change.dayId) || trip.days[0];
+function resolveDayId(dayId, tempIdMap){
+  return tempIdMap[dayId] || dayId;
+}
+
+function applyOneChatChange(change, tempIdMap){
+  if(change.action === 'add_day'){
+    const newDay = {
+      id: `day${trip.days.length + 1}`,
+      label: change.label || `Day ${trip.days.length + 1}`,
+      title: change.title || '',
+      date: change.date || '',
+      stops: []
+    };
+    trip.days.push(newDay);
+    if(change.tempId) tempIdMap[change.tempId] = newDay.id;
+    return;
+  }
+
+  const resolvedDayId = resolveDayId(change.dayId, tempIdMap);
+  const day = trip.days.find(d => d.id === resolvedDayId) || trip.days[0];
   if(!day) return;
 
   if(change.action === 'add'){
