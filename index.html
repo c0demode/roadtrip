@@ -293,6 +293,9 @@
   }
   .chat-input-row button{padding:10px 16px;border-radius:10px;border:none;background:var(--mustard);color:var(--navy);font-weight:700;cursor:pointer;}
   .chat-typing{align-self:flex-start;color:var(--paper-muted);font-size:13px;font-style:italic;padding:0 4px;}
+  .quick-actions-row{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
+  .quick-actions-row .btn{font-size:12px;padding:6px 10px;flex:1;min-width:100px;}
+  .quick-actions-row .btn.active{background:var(--mustard);color:var(--navy);border-color:var(--mustard);}
 </style>
 </head>
 <body>
@@ -336,6 +339,11 @@
       <div class="progress-track"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
       <button class="btn gps-btn" id="gps-toggle">📍 Share my location</button>
       <div class="gps-status" id="gps-status">Location sharing is off</div>
+      <div class="quick-actions-row">
+        <button class="btn btn-ghost" id="zoom-toggle">🔍 Local view</button>
+        <button class="btn btn-ghost" id="attractions-btn">🎡 Nearby attractions</button>
+        <button class="btn btn-ghost" id="funfacts-btn">🎲 Fun facts</button>
+      </div>
     </div>
   </div>
 
@@ -816,22 +824,35 @@ function selectStop(stopId){
   });
 }
 
-async function refreshCarMarker(){
-  if(!map) return;
+async function getCarPosition(){
   const day = currentDay();
-  let pos = null;
   const gps = await loadGps();
   if(gps && (Date.now() - gps.t) < 10*60*1000){
-    pos = [gps.lat, gps.lng];
-  } else {
-    const curId = currentStopMap[day.id];
-    const stop = day.stops.find(s=>s.id===curId);
-    if(stop && stop.lat && stop.lng) pos = [stop.lat, stop.lng];
+    return [gps.lat, gps.lng];
   }
+  const curId = currentStopMap[day.id];
+  const stop = day.stops.find(s=>s.id===curId);
+  if(stop && stop.lat && stop.lng) return [stop.lat, stop.lng];
+  // last resort: center of today's route
+  const coords = day.stops.filter(s=>s.lat && s.lng).map(s=>[s.lat,s.lng]);
+  if(coords.length){
+    const avgLat = coords.reduce((sum,c)=>sum+c[0],0)/coords.length;
+    const avgLng = coords.reduce((sum,c)=>sum+c[1],0)/coords.length;
+    return [avgLat, avgLng];
+  }
+  return null;
+}
+
+let localViewMode = false;
+
+async function refreshCarMarker(){
+  if(!map) return;
+  const pos = await getCarPosition();
   if(leafletLayers.car) { map.removeLayer(leafletLayers.car); leafletLayers.car = null; }
   if(pos){
     const carIcon = L.divIcon({className:'', html:'<div class="car-icon">🚙</div>', iconSize:[30,30]});
     leafletLayers.car = L.marker(pos, {icon:carIcon, zIndexOffset:1000}).addTo(map);
+    if(localViewMode) map.setView(pos, 15, {animate:true});
   }
 }
 
@@ -1070,6 +1091,46 @@ function startGpsPolling(){
     refreshCarMarker();
   }, 20000);
 }
+
+/* ============================================================
+   MAP ZOOM TOGGLE (full route vs. local/live view)
+   ============================================================ */
+const zoomToggleBtn = document.getElementById('zoom-toggle');
+zoomToggleBtn.onclick = async ()=>{
+  localViewMode = !localViewMode;
+  zoomToggleBtn.classList.toggle('active', localViewMode);
+  zoomToggleBtn.textContent = localViewMode ? '🗺️ Full route' : '🔍 Local view';
+  if(localViewMode){
+    await refreshCarMarker(); // immediately snaps to a tight zoom on your position
+  } else {
+    renderMap(); // restores the full day-route overview via fitBounds
+  }
+};
+
+/* ============================================================
+   QUICK-ACTION CHAT PROMPTS (attractions / fun facts near you)
+   ============================================================ */
+document.getElementById('attractions-btn').onclick = async ()=>{
+  const pos = await getCarPosition();
+  const prompt = pos
+    ? `Any fun, quick attractions or points of interest very close to here (around ${pos[0].toFixed(4)}, ${pos[1].toFixed(4)})? We're on a road trip with young kids and could use a short detour idea.`
+    : `Any fun, quick attractions or points of interest near our current route? We're on a road trip with young kids and could use a short detour idea.`;
+  triggerQuickChat(prompt);
+};
+
+document.getElementById('funfacts-btn').onclick = async ()=>{
+  const pos = await getCarPosition();
+  const prompt = pos
+    ? `Give us 2-3 fun, family-friendly facts or trivia about the area near ${pos[0].toFixed(4)}, ${pos[1].toFixed(4)} — something fun to share with the kids while we drive.`
+    : `Give us 2-3 fun, family-friendly facts or trivia about this general part of our road trip route — something fun to share with the kids while we drive.`;
+  triggerQuickChat(prompt);
+};
+
+function triggerQuickChat(promptText){
+  openChatPanel();
+  document.getElementById('chat-input').value = promptText;
+  sendChatMessage();
+}
 </script>
 <!-- Chat: floating button + full panel -->
 <button class="chat-fab" id="chat-fab" title="Trip Assistant">💬</button>
@@ -1158,17 +1219,19 @@ const PROPOSE_CHANGE_TOOL = {
 let chatHistory = []; // [{role:'user'|'model', parts:[...]}]
 let chatOpen = false;
 
-document.getElementById('chat-fab').onclick = ()=>{
-  chatOpen = true;
-  document.getElementById('chat-panel').classList.add('open');
-  document.body.style.overflow = 'hidden'; // stop the page underneath from scrolling
-  if(chatHistory.length === 0) renderChatBubble('model', "Hi! I can help you find rest stops, playgrounds, food, and things to do along your route. Once you decide on something, I'll put together a card you can confirm before it's added to the trip.");
-};
+document.getElementById('chat-fab').onclick = openChatPanel;
 document.getElementById('chat-close').onclick = ()=>{
   chatOpen = false;
   document.getElementById('chat-panel').classList.remove('open');
   document.body.style.overflow = '';
 };
+
+function openChatPanel(){
+  chatOpen = true;
+  document.getElementById('chat-panel').classList.add('open');
+  document.body.style.overflow = 'hidden'; // stop the page underneath from scrolling
+  if(chatHistory.length === 0) renderChatBubble('model', "Hi! I can help you find rest stops, playgrounds, food, and things to do along your route. Once you decide on something, I'll put together a card you can confirm before it's added to the trip.");
+}
 
 document.getElementById('chat-send').onclick = sendChatMessage;
 document.getElementById('chat-input').addEventListener('keydown', e=>{
